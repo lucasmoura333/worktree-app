@@ -16,3 +16,7 @@ preview-output/
 # notas geradas ao rodar o exemplo
 examples/vault/worktree-app/worktrees/
 examples/vault/.obsidian/
+
+# vídeo: dependências e saídas renderizadas
+video/node_modules/
+video/out/

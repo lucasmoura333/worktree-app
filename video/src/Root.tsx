@@ -1,0 +1,6 @@
+import { Composition } from "remotion";
+import { Demo, TOTAL } from "./Demo";
+
+export const Root = () => (
+  <Composition id="Demo" component={Demo} durationInFrames={TOTAL} fps={30} width={1280} height={720} />
+);

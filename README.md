@@ -1,4 +1,28 @@
-# worktree-app
+<h1 align="center">worktree-app</h1>
+
+<p align="center">
+  <b>Branch out. Stay connected.</b><br>
+  Várias tarefas em paralelo, uma tela para criar, acompanhar e remover git worktrees.
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" width="720" alt="Demonstração do worktree-app: mural de worktrees, criação, savepoints, leitor de notas com anexos, grafo e modelos visuais">
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-d8ef5b?labelColor=20211f" alt="Licença MIT"></a>
+  <img src="https://img.shields.io/badge/Go-1.25%2B-2548dc?labelColor=20211f" alt="Go 1.25+">
+  <img src="https://img.shields.io/badge/s%C3%B3-127.0.0.1-ff5a2c?labelColor=20211f" alt="Só 127.0.0.1">
+  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux%20%C2%B7%20WSL-ok-efebe1?labelColor=20211f" alt="Windows, Linux e WSL">
+</p>
+
+<p align="center">
+  <a href="#começar">Começar</a> ·
+  <a href="examples/README.md">Vault de exemplo</a> ·
+  <a href="video/README.md">Como o vídeo é gerado</a>
+</p>
+
+---
 
 Painel local para criar, acompanhar e remover **git worktrees** de vários
 repositórios ao mesmo tempo, com notas opcionais no Obsidian.
@@ -6,11 +30,8 @@ repositórios ao mesmo tempo, com notas opcionais no Obsidian.
 É um binário Go com a página embutida (`go:embed`), sem dependências externas,
 que escuta só em `127.0.0.1`. Funciona em Windows, Linux e WSL.
 
-> Interface e documentação em português (BR).
-
-![Demonstração do worktree-app: mural de worktrees, criação, savepoints, leitor de notas com anexos, grafo e modelos visuais](docs/demo.gif)
-
-As telas usam o Vault de [`examples/`](examples/README.md).
+> Interface e documentação em português (BR). As telas do vídeo usam o Vault de
+> [`examples/`](examples/README.md) e são animadas com Remotion em [`video/`](video/README.md).
 
 ## Por que
 

@@ -1,0 +1,53 @@
+{
+  // Copie para config.json (fica fora do git) e ajuste os caminhos.
+  // Pasta que contém os repositórios listados em "repos".
+  "root": "C:/Users/voce/projetos",
+  // Opcional: notas das worktrees no Obsidian. Sem "vault", o painel funciona sem notas.
+  "vault": {
+    "path": "C:/Users/voce/Documents/Obsidian Vault",
+    // Única pasta do Vault que o app lê e escreve (notas em <scope>/worktrees).
+    "scope": "worktree-app"
+  },
+  "listen": "127.0.0.1:7777",
+  "reader": {
+    "images": true,
+    "maxImageWidth": 720,
+    "attachments": "card",
+    "pdf": "preview",
+    "externalImages": false,
+    "maxAssetMB": 50
+  },
+  "tasksDir": "tasks",
+  "workspaceTemplate": "dev.code-workspace",
+  "folderPattern": "dev.{feature}",
+  // {date} usa o layout de data do Go: 020106 = ddmmaa
+  "branchPattern": "dev.{feature}.{date}",
+  "dateFormat": "020106",
+  "editor": ["code"],
+  "repos": [
+    {
+      "key": "web",
+      "dir": "meu-web",
+      // worktree principal dentro de <root>/<dir>; use "." se o repo principal é a própria pasta
+      "main": "dev",
+      "base": "origin/dev",
+      "copy": [".env", "docker/dev/.env"],
+      "deps": [
+        { "dir": "node_modules", "install": ["yarn", "install", "--frozen-lockfile"] },
+        { "dir": "vendor", "install": ["composer", "install", "--no-interaction"] }
+      ],
+      "dockerEnv": { "file": "docker/dev/.env", "projectKey": "COMPOSE_PROJECT_NAME", "portKey": "DEV_PORT", "portMin": 6660, "portMax": 6699 }
+    },
+    {
+      "key": "api",
+      "dir": "meu-api",
+      "main": ".",
+      "base": "origin/main",
+      // worktrees ao lado do repo: <root>/meu-api-<feature>
+      "worktreeRoot": ".",
+      "folderPattern": "meu-api-{feature}",
+      "copy": [".env"],
+      "deps": [{ "dir": "node_modules", "install": ["npm", "ci"] }]
+    }
+  ]
+}

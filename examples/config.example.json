@@ -1,0 +1,35 @@
+{
+  // Exemplo com o Vault de examples/vault. Caminhos relativos valem a partir
+  // desta pasta. Troque "root" e "repos" pelos seus repositórios.
+  "root": "C:/Users/voce/projetos",
+  "vault": {
+    "path": "vault",
+    "scope": "worktree-app",
+    "savepoints": "vault/worktree-app/docs/savepoints",
+    "savepointsLink": "worktree-app/docs/savepoints"
+  },
+  "listen": "127.0.0.1:7777",
+  "folderPattern": "dev.{feature}",
+  "branchPattern": "dev.{feature}.{date}",
+  "repos": [
+    {
+      // os savepoints de exemplo citam a worktree "checkout-novo" deste repo
+      "key": "web",
+      "dir": "meu-web",
+      "main": "dev",
+      "base": "origin/dev",
+      "copy": [".env"],
+      "deps": [{ "dir": "node_modules", "install": ["npm", "ci"] }]
+    },
+    {
+      // e a branch "dev.auditoria-login" deste
+      "key": "api",
+      "dir": "meu-api",
+      "main": ".",
+      "base": "origin/main",
+      "worktreeRoot": ".",
+      "folderPattern": "meu-api-{feature}",
+      "copy": [".env"]
+    }
+  ]
+}

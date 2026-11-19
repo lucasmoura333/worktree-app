@@ -1,0 +1,18 @@
+# configs reais têm caminhos e nomes da sua máquina; versione só o exemplo
+config.json
+config.*.json
+!config.example.json
+
+# binários: cada um compila o seu
+*.exe
+*.exe~
+/wt-street-linux
+/worktree-app
+/dist/
+
+# capturas e scripts de verificação locais
+preview-output/
+
+# notas geradas ao rodar o exemplo
+examples/vault/worktree-app/worktrees/
+examples/vault/.obsidian/

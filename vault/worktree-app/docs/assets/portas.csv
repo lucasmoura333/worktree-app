@@ -1,0 +1,3 @@
+repo,portMin,portMax,uso
+meu-web,6660,6699,docker compose do web
+meu-api,5180,5199,vite das worktrees

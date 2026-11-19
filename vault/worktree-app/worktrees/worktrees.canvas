@@ -1,0 +1,179 @@
+{
+  "_generated_by": "worktree-app/v1",
+  "edges": [
+    {
+      "fromNode": "checkout-novo--app-0",
+      "fromSide": "right",
+      "id": "checkout-novo--app-edge-1",
+      "toNode": "checkout-novo--app-1",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "checkout-novo--app-1",
+      "fromSide": "right",
+      "id": "checkout-novo--app-edge-2",
+      "toNode": "checkout-novo--app-2",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "menu-lateral--app-0",
+      "fromSide": "right",
+      "id": "menu-lateral--app-edge-1",
+      "toNode": "menu-lateral--app-1",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "menu-lateral--app-1",
+      "fromSide": "right",
+      "id": "menu-lateral--app-edge-2",
+      "toNode": "menu-lateral--app-2",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "auditoria-login--security-0",
+      "fromSide": "right",
+      "id": "auditoria-login--security-edge-1",
+      "toNode": "auditoria-login--security-1",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "auditoria-login--security-1",
+      "fromSide": "right",
+      "id": "auditoria-login--security-edge-2",
+      "toNode": "auditoria-login--security-2",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "webhook-retry--api-0",
+      "fromSide": "right",
+      "id": "webhook-retry--api-edge-1",
+      "toNode": "webhook-retry--api-1",
+      "toSide": "left"
+    },
+    {
+      "fromNode": "webhook-retry--api-1",
+      "fromSide": "right",
+      "id": "webhook-retry--api-edge-2",
+      "toNode": "webhook-retry--api-2",
+      "toSide": "left"
+    }
+  ],
+  "nodes": [
+    {
+      "color": "2",
+      "height": 160,
+      "id": "checkout-novo--app-0",
+      "text": "Frente não vinculada",
+      "type": "text",
+      "width": 340,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "file": "worktree-app/worktrees/checkout-novo--app.md",
+      "height": 160,
+      "id": "checkout-novo--app-1",
+      "type": "file",
+      "width": 340,
+      "x": 440,
+      "y": 0
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "checkout-novo--app-2",
+      "text": "Sem savepoint vinculado",
+      "type": "text",
+      "width": 340,
+      "x": 880,
+      "y": 0
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "menu-lateral--app-0",
+      "text": "Frente não vinculada",
+      "type": "text",
+      "width": 340,
+      "x": 0,
+      "y": 220
+    },
+    {
+      "file": "worktree-app/worktrees/menu-lateral--app.md",
+      "height": 160,
+      "id": "menu-lateral--app-1",
+      "type": "file",
+      "width": 340,
+      "x": 440,
+      "y": 220
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "menu-lateral--app-2",
+      "text": "Sem savepoint vinculado",
+      "type": "text",
+      "width": 340,
+      "x": 880,
+      "y": 220
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "auditoria-login--security-0",
+      "text": "Frente não vinculada",
+      "type": "text",
+      "width": 340,
+      "x": 0,
+      "y": 440
+    },
+    {
+      "file": "worktree-app/worktrees/auditoria-login--security.md",
+      "height": 160,
+      "id": "auditoria-login--security-1",
+      "type": "file",
+      "width": 340,
+      "x": 440,
+      "y": 440
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "auditoria-login--security-2",
+      "text": "Sem savepoint vinculado",
+      "type": "text",
+      "width": 340,
+      "x": 880,
+      "y": 440
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "webhook-retry--api-0",
+      "text": "Frente não vinculada",
+      "type": "text",
+      "width": 340,
+      "x": 0,
+      "y": 660
+    },
+    {
+      "file": "worktree-app/worktrees/webhook-retry--api.md",
+      "height": 160,
+      "id": "webhook-retry--api-1",
+      "type": "file",
+      "width": 340,
+      "x": 440,
+      "y": 660
+    },
+    {
+      "color": "2",
+      "height": 160,
+      "id": "webhook-retry--api-2",
+      "text": "Sem savepoint vinculado",
+      "type": "text",
+      "width": 340,
+      "x": 880,
+      "y": 660
+    }
+  ]
+}

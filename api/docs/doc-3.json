@@ -1,0 +1,1 @@
+{"path":"worktree-app/docs/kanbans/seguranca","text":"---\ntype: kanban\nfront: seguranca\n---\n\n# Frente: segurança\n\n## Em andamento\n\n- [ ] Auditoria de login → [[worktree-app/docs/savepoints/2026-11-12-auditoria-login|Savepoint 12/11]]\n\n## A fazer\n\n- [ ] Alertar após 5 falhas seguidas do mesmo IP\n","source":"vault","modified":"2026-11-19T10:50:15-04:00"}

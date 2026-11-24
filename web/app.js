@@ -614,6 +614,21 @@ function worktreeCard(wt, f, removed = false) {
         )
       : null,
     !removed
+      ? h("button", { onclick: () => openDiff(wt) }, "Comparar…")
+      : null,
+    !removed
+      ? h("button", { onclick: () => takeSnapshot(wt) }, "Snapshot agora")
+      : null,
+    !removed
+      ? h("button", { onclick: () => openSnapshots(wt) }, "Snapshots…")
+      : null,
+    !removed && state.terminal
+      ? (state.agentNames || []).flatMap((ag) => [
+          h("button", { onclick: () => launchTerminal(wt.path, ag, false) }, "▶ " + ag + " (novo)"),
+          h("button", { onclick: () => launchTerminal(wt.path, ag, true) }, "↺ " + ag + " (retomar)"),
+        ])
+      : null,
+    !removed
       ? h(
           "button",
           { class: "danger act", onclick: () => openRemove(f) },
@@ -628,6 +643,13 @@ function worktreeCard(wt, f, removed = false) {
       "div",
       { class: "card-top" },
       h("span", { class: "repo-chip" }, wt.repoDir),
+      !removed
+        ? h(
+            "span",
+            { class: "agent-slot", "data-agent-path": wt.path },
+            agentsState.agents.filter((a) => a.alive && a.path === wt.path).map(agentChip),
+          )
+        : null,
       h(
         "span",
         {
@@ -687,6 +709,17 @@ function worktreeCard(wt, f, removed = false) {
       h(
         "div",
         { class: "row" },
+        !removed && state.terminal
+          ? h(
+              "button",
+              {
+                class: "open-term",
+                title: "Abrir um terminal nesta worktree",
+                onclick: () => launchTerminal(wt.path, "", false),
+              },
+              ">_",
+            )
+          : null,
         !removed
           ? h(
               "button",
@@ -953,6 +986,7 @@ function openRemove(f) {
   const delBranch = h("input", { type: "checkbox" });
   const forceBranch = h("input", { type: "checkbox", disabled: true });
   const rmWs = h("input", { type: "checkbox", checked: true });
+  const keepSnapshot = h("input", { type: "checkbox", checked: true });
   const checks = f.worktrees.map((wt) => ({
     wt,
     cb: h("input", { type: "checkbox", checked: true }),
@@ -1025,6 +1059,7 @@ function openRemove(f) {
       deleteBranch: delBranch.checked,
       forceBranch: forceBranch.checked,
       workspace: rmWs.checked,
+      skipSnapshot: !keepSnapshot.checked,
     });
   });
 
@@ -1037,6 +1072,12 @@ function openRemove(f) {
         {},
         force,
         "forçar (descarta alterações e commits locais listados acima)",
+      ),
+      h(
+        "label",
+        { class: "sub" },
+        keepSnapshot,
+        "salvar um snapshot antes de remover (só vale com “forçar”)",
       ),
       h(
         "label",
@@ -1319,4 +1360,369 @@ $("#reader").addEventListener("close", () => {
   reader.pos = -1;
 });
 
-refresh();
+// ---- Agentes: estado vindo de /api/agents (hooks + /proc), sem git nem Vault.
+
+const AGENT_LABEL = {
+  working: "trabalhando",
+  waiting: "esperando você",
+  done: "concluído",
+  running: "ativo (sem hook)",
+  ended: "encerrado",
+};
+let agentsState = { agents: [], counts: {} };
+const agentSeen = new Map(); // agente/sessão -> último estado (para avisar)
+let agentTimer = 0;
+
+function agentKey(a) {
+  return a.agent + "/" + (a.session || "pid" + a.pid);
+}
+
+function agentChip(a) {
+  const label = AGENT_LABEL[a.state] || a.state;
+  return h(
+    "span",
+    {
+      class: "agent-chip " + a.state,
+      title:
+        a.agent +
+        " · " +
+        label +
+        (a.since ? " desde " + new Date(a.since).toLocaleTimeString("pt-BR") : "") +
+        (a.session ? "\nsessão " + a.session : ""),
+    },
+    a.agent + " · " + label,
+  );
+}
+
+// ---- Comparar: diff só leitura contra a base ou contra outra worktree.
+
+function patchLines(text) {
+  const box = h("div", { class: "diff-lines" });
+  for (const line of text.split("\n")) {
+    const cls = line.startsWith("@@")
+      ? "hunk"
+      : line.startsWith("+") && !line.startsWith("+++")
+        ? "add"
+        : line.startsWith("-") && !line.startsWith("---")
+          ? "del"
+          : /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |Binary)/.test(line)
+            ? "meta"
+            : "";
+    box.append(h("div", { class: cls }, line || " "));
+  }
+  return box;
+}
+
+function splitPatch(patch) {
+  const byPath = new Map();
+  for (const chunk of patch.split(/^(?=diff --git )/m)) {
+    const m = /^diff --git a\/.* b\/(.*)$/m.exec(chunk);
+    if (m) byPath.set(m[1], chunk);
+  }
+  return byPath;
+}
+
+async function openDiff(wt) {
+  const dlg = $("#dlg");
+  const others = state.features
+    .flatMap((f) => f.worktrees)
+    .filter((o) => o.repo === wt.repo && o.path !== wt.path);
+  const target = h(
+    "select",
+    {},
+    h("option", { value: "base" }, "a base do repo (com o que não foi commitado)"),
+    others.map((o) => h("option", { value: o.path }, o.folder + " · " + (o.branch || o.head))),
+  );
+  const out = h("div", { class: "diff-out" }, h("p", { class: "muted" }, "Carregando…"));
+  const load = async () => {
+    out.replaceChildren(h("p", { class: "muted" }, "Carregando…"));
+    try {
+      const q = new URLSearchParams({ repo: wt.repo, path: wt.path, against: target.value });
+      const d = await getJSON("/api/diff?" + q);
+      const chunks = splitPatch(d.patch);
+      const add = d.files.reduce((n, f) => n + f.add, 0);
+      const del = d.files.reduce((n, f) => n + f.del, 0);
+      out.replaceChildren(h("div", {},
+        h(
+          "p",
+          { class: "sub" },
+          d.fromLabel + " → contra " + d.toLabel + " · ",
+          plural(d.files.length, "arquivo", "arquivos"),
+          " · ",
+          h("span", { class: "diff-add" }, "+" + add),
+          " ",
+          h("span", { class: "diff-del" }, "−" + del),
+        ),
+        d.dirtyTo
+          ? h("p", { class: "warn" }, "A outra worktree tem " + d.dirtyTo + " alterações sem commit, que não entram nesta comparação.")
+          : null,
+        d.truncated || d.filesCut
+          ? h("p", { class: "warn" }, "Diff grande: a lista ou o patch foram cortados. Abra no editor para ver tudo.")
+          : null,
+        d.files.length || d.untracked.length ? null : h("p", { class: "muted" }, "Sem diferenças."),
+        d.files.map((f) => {
+          const det = h(
+            "details",
+            { class: "diff-file" },
+            h(
+              "summary",
+              {},
+              h("span", { class: "mono" }, f.oldPath ? f.oldPath + " → " + f.path : f.path),
+              " ",
+              f.binary
+                ? h("span", { class: "muted" }, "binário")
+                : [h("span", { class: "diff-add" }, "+" + f.add), " ", h("span", { class: "diff-del" }, "−" + f.del)],
+            ),
+          );
+          det.addEventListener(
+            "toggle",
+            () => {
+              if (det.open && det.children.length === 1)
+                det.append(
+                  chunks.has(f.path)
+                    ? patchLines(chunks.get(f.path))
+                    : h("p", { class: "muted" }, "Patch fora do corte."),
+                );
+            },
+          );
+          return det;
+        }),
+        d.untracked.length
+          ? h(
+              "details",
+              { class: "diff-file" },
+              h("summary", {}, plural(d.untracked.length, "arquivo novo sem git add", "arquivos novos sem git add")),
+              h("ul", {}, d.untracked.map((n) => h("li", { class: "mono" }, n))),
+            )
+          : null,
+      ));
+    } catch (e) {
+      out.replaceChildren(h("p", { class: "warn" }, "Não deu para comparar: " + e.message));
+    }
+  };
+  target.addEventListener("change", load);
+  dlg.replaceChildren(
+    h("h3", {}, "Comparar " + (wt.feature || wt.folder)),
+    h("label", {}, "Contra ", target),
+    out,
+    h("div", { class: "row" }, h("button", { onclick: () => dlg.close() }, "Fechar")),
+  );
+  dlg.classList.add("wide");
+  dlg.addEventListener("close", () => dlg.classList.remove("wide"), { once: true });
+  dlg.showModal();
+  load();
+}
+
+// ---- Snapshots: retrato local do patch, dos untracked e dos commits fora do remoto.
+
+function snapBytes(n) {
+  if (!n) return "0 B";
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return Math.round(n / 1024) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+async function takeSnapshot(wt) {
+  await stream("/api/snapshot", { repo: wt.repo, path: wt.path, reason: "manual" });
+}
+
+function snapName(s) {
+  return String(s.dir || "").split(/[\\/]/).filter(Boolean).pop() || "";
+}
+
+async function restoreSnapshot(wt, s) {
+  const when = updatedLabel(s.createdAt);
+  if (!window.confirm("Restaurar o snapshot de " + when + "? A worktree precisa estar limpa."))
+    return;
+  $("#dlg").close();
+  await stream("/api/snapshot/restore", {
+    repo: wt.repo,
+    path: wt.path,
+    snapshot: snapName(s),
+  });
+}
+
+async function openSnapshots(wt) {
+  const dlg = $("#dlg");
+  const out = h("div", { class: "snap-list" }, h("p", { class: "muted" }, "Carregando…"));
+  const load = async () => {
+    try {
+      const q = new URLSearchParams({ repo: wt.repo, path: wt.path });
+      const list = await getJSON("/api/snapshots?" + q);
+      out.replaceChildren(
+        list.length
+          ? h(
+              "ul",
+              {},
+              list.map((s) =>
+                h(
+                  "li",
+                  {},
+                  h(
+                    "div",
+                    {},
+                    h("strong", {}, updatedLabel(s.createdAt)),
+                    h(
+                      "span",
+                      { class: "muted" },
+                      " · " + (s.reason === "pre-remove" ? "antes de remover" : "manual"),
+                    ),
+                  ),
+                  h(
+                    "div",
+                    { class: "muted" },
+                    (s.branch || s.head) + " · " + snapBytes(s.bytes),
+                    s.omitted && s.omitted.length
+                      ? " · " + plural(s.omitted.length, "arquivo omitido", "arquivos omitidos")
+                      : "",
+                    s.hasBundle ? " · bundle de commits" : "",
+                  ),
+                  s.agents && s.agents.length
+                    ? h(
+                        "div",
+                        { class: "muted" },
+                        "sessões: " + s.agents.map((a) => a.agent + "/" + a.session).join(", "),
+                      )
+                    : null,
+                  h(
+                    "button",
+                    { class: "act", onclick: () => restoreSnapshot(wt, s) },
+                    "Restaurar",
+                  ),
+                ),
+              ),
+            )
+          : h("p", { class: "muted" }, "Nenhum snapshot para esta worktree."),
+      );
+    } catch (e) {
+      out.replaceChildren(h("p", { class: "warn" }, "Não deu para listar: " + e.message));
+    }
+  };
+  dlg.replaceChildren(
+    h("h3", {}, "Snapshots " + (wt.feature || wt.folder)),
+    h(
+      "p",
+      { class: "muted" },
+      "Restaurar exige a worktree limpa. Segredos, deps e o copy do repo ficam de fora. Commits do bundle só aparecem como comando.",
+    ),
+    out,
+    h(
+      "div",
+      { class: "row end" },
+      h("button", { onclick: () => takeSnapshot(wt) }, "Snapshot agora"),
+      h("button", { onclick: () => dlg.close() }, "Fechar"),
+    ),
+  );
+  dlg.classList.add("wide");
+  dlg.addEventListener("close", () => dlg.classList.remove("wide"), { once: true });
+  dlg.showModal();
+  load();
+}
+
+async function launchTerminal(path, agent, resume) {
+  try {
+    await postJSON("/api/terminal", { path, agent, resume });
+    logLine({
+      level: "ok",
+      msg: (agent ? agent + (resume ? " (retomar)" : "") : "terminal") + " aberto em " + path,
+    });
+  } catch (e) {
+    logLine({ level: "error", msg: "terminal: " + e.message });
+  }
+}
+
+function paintAgents() {
+  const live = agentsState.agents.filter((a) => a.alive);
+  const c = agentsState.counts || {};
+  const bar = $("#agents-bar");
+  const parts = [
+    ["waiting", c.waiting, "✋"],
+    ["working", c.working, "⚙"],
+    ["done", c.done, "✓"],
+    ["running", c.running, "●"],
+  ].filter(([, n]) => n > 0);
+  bar.replaceChildren(
+    ...(parts.length
+      ? parts.map(([st, n, icon]) =>
+          h(
+            "button",
+            {
+              class: "agent-chip small " + st,
+              title: live
+                .filter((a) => a.state === st)
+                .map((a) => a.agent + " em " + (a.feature || a.folder))
+                .join("\n"),
+              onclick: () => {
+                const a = live.find((x) => x.state === st);
+                const slot =
+                  a && document.querySelector('[data-agent-path="' + CSS.escape(a.path) + '"]');
+                slot?.closest(".worktree-card")?.scrollIntoView({ block: "center" });
+              },
+            },
+            icon + " " + n + " " + AGENT_LABEL[st],
+          ),
+        )
+      : [h("span", { class: "muted" }, "Nenhum agente ativo")]),
+  );
+  bar.hidden = false;
+  for (const slot of document.querySelectorAll("[data-agent-path]")) {
+    const mine = live.filter((a) => a.path === slot.dataset.agentPath);
+    slot.replaceChildren(...mine.map(agentChip));
+    slot
+      .closest(".worktree-card")
+      ?.classList.toggle("agent-waiting", mine.some((a) => a.state === "waiting"));
+  }
+}
+
+function notifyTransitions() {
+  const on =
+    localStorage.getItem("wt-notify") === "1" && window.Notification?.permission === "granted";
+  for (const a of agentsState.agents) {
+    const k = agentKey(a);
+    const prev = agentSeen.get(k);
+    agentSeen.set(k, a.state);
+    if (on && prev && prev !== "waiting" && a.state === "waiting" && a.alive) {
+      new Notification(a.agent + " esperando você", { body: a.feature || a.folder, tag: k });
+    }
+  }
+}
+
+async function pollAgents() {
+  clearTimeout(agentTimer);
+  if (state?.demo) return;
+  if (!document.hidden) {
+    try {
+      agentsState = await getJSON("/api/agents");
+      notifyTransitions();
+      paintAgents();
+    } catch {
+      /* sem a barra o painel continua funcionando */
+    }
+  }
+  agentTimer = setTimeout(pollAgents, 3000);
+}
+
+function setupNotify() {
+  const b = $("#btn-notify");
+  if (!window.Notification) return;
+  const paint = () => {
+    const on = localStorage.getItem("wt-notify") === "1" && Notification.permission === "granted";
+    b.textContent = on ? "🔔 Avisando" : "🔕 Avisar";
+    b.classList.toggle("on", on);
+  };
+  b.hidden = false;
+  b.addEventListener("click", async () => {
+    if (localStorage.getItem("wt-notify") === "1") localStorage.removeItem("wt-notify");
+    else if ((await Notification.requestPermission()) === "granted")
+      localStorage.setItem("wt-notify", "1");
+    paint();
+  });
+  paint();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) pollAgents();
+});
+
+setupNotify();
+refresh().then(pollAgents);

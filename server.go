@@ -33,9 +33,13 @@ type server struct {
 	docs    docIndex
 	graph   graphCache
 	ports   *portAllocator
+	wts     wtIndex
+	launch  func(argv []string) error
 }
 
-func newServer(cfg *Config) *server { return &server{cfg: cfg, ports: newPortAllocator()} }
+func newServer(cfg *Config) *server {
+	return &server{cfg: cfg, ports: newPortAllocator(), launch: defaultLaunch}
+}
 
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -48,6 +52,12 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/doc", s.handleDoc)
 	mux.HandleFunc("GET /api/asset", s.handleAsset)
 	mux.HandleFunc("GET /api/graph", s.handleGraph)
+	mux.HandleFunc("GET /api/agents", s.handleAgents)
+	mux.HandleFunc("POST /api/terminal", s.handleTerminal)
+	mux.HandleFunc("GET /api/diff", s.handleDiff)
+	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
+	mux.HandleFunc("POST /api/snapshot", s.stream(s.opSnapshot))
+	mux.HandleFunc("POST /api/snapshot/restore", s.stream(s.opSnapshotRestore))
 	mux.HandleFunc("POST /api/open", s.handleOpen)
 	mux.HandleFunc("POST /api/create", s.stream(s.opCreate))
 	mux.HandleFunc("POST /api/setup", s.stream(s.opSetup))
@@ -247,6 +257,7 @@ func (s *server) stream(fn opFunc) http.HandlerFunc {
 			return
 		}
 		err := fn(ctx, r, lg)
+		s.wts.invalidate()
 		after := scanState(ctx, s.cfg)
 		s.syncVault(after)
 		if after.VaultError != "" {

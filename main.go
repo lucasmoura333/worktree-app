@@ -18,6 +18,15 @@ import (
 )
 
 func main() {
+	// "hook" roda dentro dos agentes: sem config, sem saída, sempre 0.
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		runHook(os.Args[2:], os.Stdin, time.Now())
+		os.Exit(0)
+	}
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		runShell(os.Args[2:])
+		return
+	}
 	cfgPath := flag.String("config", "", "caminho do config.json (padrão: ao lado do executável)")
 	demo := flag.Bool("demo", false, "prévia visual em 127.0.0.1:7788, com exemplos e sem alterar repositórios ou Vault")
 	noOpen := flag.Bool("no-open", false, "não abrir o navegador")

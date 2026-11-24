@@ -18,6 +18,8 @@ type RemoveReq struct {
 	DeleteBranch bool     `json:"deleteBranch"`
 	ForceBranch  bool     `json:"forceBranch"`
 	Workspace    bool     `json:"workspace"`
+	// SkipSnapshot desmarca "salvar snapshot antes" no diálogo de remoção.
+	SkipSnapshot bool `json:"skipSnapshot,omitempty"`
 }
 
 func removeFeature(ctx context.Context, cfg *Config, req *RemoveReq, lg Logger) error {
@@ -55,6 +57,16 @@ func removeFeature(ctx context.Context, cfg *Config, req *RemoveReq, lg Logger) 
 	}
 	if blocked && !req.Force {
 		return errors.New("nada foi removido; marque \"forçar\" para remover mesmo assim")
+	}
+
+	// Remoção forçada com risco: snapshot de cada alvo antes de apagar nada.
+	// Se um snapshot falhar, a remoção inteira é abortada.
+	if blocked && req.Force && !req.SkipSnapshot {
+		for _, wt := range targets {
+			if _, err := createSnapshot(ctx, cfg, cfg.repo(wt.Repo), wt, "pre-remove", "", lg); err != nil {
+				return fmt.Errorf("snapshot de %s falhou; nada foi removido: %w", wt.Folder, err)
+			}
+		}
 	}
 
 	errs := make([]error, len(targets))

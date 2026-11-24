@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent codex || true" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent codex || true" }] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent codex || true" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent codex || true" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent codex || true" }] }
+    ]
+  }
+}

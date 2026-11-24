@@ -121,6 +121,30 @@ faltando, e deps que são link para outra pasta.
   log para recriar com `git branch <nome> <hash>`. A branch do remoto nunca é
   tocada, e `tasks/` nunca é apagada.
 - **Registros quebrados**: worktrees cuja pasta sumiu, com botão de `git worktree prune`.
+- **Agentes**: a barra do topo conta quantos agentes (Claude Code, Codex, opencode)
+  estão trabalhando, esperando você ou concluídos, e cada card mostra o agente da
+  sua pasta. Atualiza a cada 3 s pelo `/api/agents`, que não roda `git status` nem
+  toca o Vault. "🔕 Avisar" liga uma notificação do navegador quando um agente passa
+  a esperar você. Os estados vêm de hooks; sem hook, os processos achados em `/proc`
+  aparecem como "ativo (sem hook)". Veja [`examples/hooks/`](examples/hooks/README.md).
+- **Terminal e agentes** (WSL): `>_` abre uma aba do Windows Terminal na pasta da
+  worktree; no menu `···`, "▶ agente (novo)" abre o agente ali e "↺ agente (retomar)"
+  retoma a última sessão registrada nessa worktree.
+- **Comparar…**: diff só leitura da worktree contra a base do repo (inclui o que não
+  foi commitado e lista os arquivos novos) ou contra outra worktree do mesmo repo
+  (só commits). Arquivos do `copy` (`.env` e afins) e pastas de deps ficam de fora;
+  o patch é cortado em `diffMaxKB`.
+- **Snapshot agora / Snapshots…**: retrato local da worktree em
+  `stateDir/snapshots/<repo>/<pasta>/<data-hora>/`, com `meta.json` (branch, HEAD,
+  upstream, dirty, sessões de agente para retomar e o savepoint vinculado),
+  `changes.patch`, `untracked.tar` e, se houver commits fora do remoto,
+  `commits.bundle`. Segredos, o `copy` do repo e as deps nunca entram; os nomes
+  omitidos ficam no `meta.json`. Restaurar exige a worktree limpa: valida o patch e o
+  tar antes de aplicar, recusa sobrescrever arquivos e não escreve refs do bundle
+  (só mostra o comando `git fetch`). A retenção guarda os 10 mais novos por pasta por
+  30 dias; snapshots feitos antes de remover ficam 90 dias. Na remoção forçada com
+  risco, o snapshot é criado antes de apagar qualquer coisa e, se ele falhar, nada é
+  removido.
 
 O app não faz commit, push nem nada que altere o remoto. A única conversa com o
 remoto é `git fetch`.
@@ -142,6 +166,12 @@ Aceita comentários `//`. Veja [`config.example.json`](config.example.json).
 | `tasksDir`, `workspaceTemplate`, `editor` | pasta de tasks, modelo de `.code-workspace` e comando do editor |
 | `vault` | opcional: notas no Obsidian (abaixo) |
 | `reader` | opcional: leitor de notas (abaixo) |
+| `stateDir` | registros dos agentes e snapshots (padrão `$WT_STATE_DIR` ou `~/.local/state/worktree-app`) |
+| `distro` | distro do WSL para o terminal (padrão `$WSL_DISTRO_NAME`) |
+| `terminal` | argv da aba nova com `{title}` `{path}` `{distro}` `{cmd}`; padrão no WSL: `wt.exe -w 0 nt --title {title} wsl.exe -d {distro} --cd {path} -e {cmd}`; vazio desliga |
+| `agents` | `{"nome": {"new": [...], "resume": [..., "{session}"]}}`; padrão: `claude`, `codex`, `opencode` |
+| `diffMaxKB` | corte do patch em "Comparar" (padrão 2048) |
+| `snapshots` | `{"keep":10,"maxAgeDays":30,"preRemoveDays":90,"maxMB":100,"fileMaxMB":20}`: retenção por pasta, limite total e por arquivo |
 
 Por repo:
 
@@ -226,6 +256,19 @@ SVG é servido com CSP sem script.
   `Host` local, o que bloqueia requisições de outras páginas do navegador.
 - Nenhum comando altera o remoto; remoções conferem alterações e commits locais.
 - O Vault fica restrito a `vault.scope`.
+- O hook dos agentes (`wt-street-linux hook`) não imprime nada, sempre sai com 0 e
+  grava só agente, sessão, pasta, estado, horários e pid (0600). Prompt e transcript
+  não são lidos para o registro. Nada disso vai para o Vault.
+- O terminal só aceita worktrees conhecidas e monta tudo como argv, sem `cmd.exe`;
+  argumentos com espaço, aspas, `;` ou `&` são recusados. A sessão a retomar vem do
+  registro do hook, nunca do navegador.
+- O diff roda com `GIT_OPTIONAL_LOCKS=0` (não cria `index.lock`) e só lê.
+- Snapshot é local, em pasta 0700 com arquivos 0600. O `copy` do repo, as deps e uma
+  lista fixa de segredos (`.env*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`,
+  `.npmrc`, `credentials*.json`, `.claude/`, `secrets/`) ficam de fora; só os nomes
+  omitidos vão para o `meta.json`. Nada disso vai para o Vault. O restore recusa
+  worktree suja, caminho absoluto ou com `..`, links e sobrescrita; o bundle de
+  commits é só informativo (nenhuma ref é escrita).
 
 ## Créditos e licença
 

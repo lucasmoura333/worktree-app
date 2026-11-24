@@ -1,6 +1,6 @@
 // Captura as telas usadas no vídeo (public/*.png) de um painel já rodando com
 // o Vault de examples/. Uso:
-//   WT_URL=http://127.0.0.1:7777/ CHROME_PATH=/caminho/do/chrome pnpm capture
+//   WT_URL=http://127.0.0.1:7777/ WT_ROOT_REAL=/caminho/do/root CHROME_PATH=/caminho/do/chrome pnpm capture
 // Sem CHROME_PATH, usa o Chromium do Playwright (npx playwright-core install chromium).
 const path = require("path");
 const { chromium } = require("playwright-core");
@@ -15,11 +15,24 @@ const ROOT_LABEL = process.env.WT_ROOT_LABEL || "~/projetos";
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2, locale: "pt-BR" });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("pageerror", e.message));
+  // Além do #root, troca o caminho real (WT_ROOT_REAL) em todo texto visível,
+  // porque o diálogo de criação e os planos mostram caminhos absolutos.
+  const REAL = [process.env.WT_ROOT_REAL, process.env.WT_STATE_REAL].filter(Boolean);
   const mask = () =>
-    page.evaluate((label) => {
-      const r = document.querySelector("#root");
-      if (r) r.textContent = label;
-    }, ROOT_LABEL);
+    page.evaluate(
+      ({ label, real }) => {
+        const r = document.querySelector("#root");
+        if (r) r.textContent = label;
+        if (!real.length) return;
+        const fix = (s) => real.reduce((acc, p) => acc.split(p).join(label), s);
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          if (real.some((p) => n.nodeValue.includes(p))) n.nodeValue = fix(n.nodeValue);
+        }
+        for (const el of document.querySelectorAll("input, textarea")) if (el.value) el.value = fix(el.value);
+      },
+      { label: ROOT_LABEL, real: REAL },
+    );
   const shot = async (name) => {
     await page.waitForTimeout(900);
     await mask();

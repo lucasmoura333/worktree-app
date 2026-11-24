@@ -5,8 +5,9 @@
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "capture": "node scripts/capture.cjs",
+    "capture:agents": "node scripts/capture-agents.cjs",
     "render": "remotion render src/index.ts Demo out/demo.mp4 --crf=20",
-    "gif": "ffmpeg -v error -y -i out/demo.mp4 -vf \"fps=10,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle\" ../docs/demo.gif"
+    "gif": "ffmpeg -v error -y -i out/demo.mp4 -vf \"fps=8,scale=680:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=48:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle\" ../docs/demo.gif"
   },
   "dependencies": {
     "@remotion/cli": "4.0.545",

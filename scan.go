@@ -75,6 +75,9 @@ type State struct {
 	Features   []FeatureState `json:"features"`
 	Stale      []WorktreeInfo `json:"stale"`
 	Reader     ReaderState    `json:"reader"`
+	// Terminal liga os botões de terminal/agente; AgentNames lista os agentes.
+	Terminal   bool     `json:"terminal,omitempty"`
+	AgentNames []string `json:"agentNames,omitempty"`
 }
 
 func scanState(ctx context.Context, cfg *Config) *State {
@@ -94,7 +97,8 @@ func scanState(ctx context.Context, cfg *Config) *State {
 	}
 	wg.Wait()
 
-	st := &State{Root: cfg.Root, Features: []FeatureState{}, Stale: []WorktreeInfo{}, Reader: cfg.readerState(), VaultScope: strings.TrimSuffix(docScope, "/")}
+	st := &State{Root: cfg.Root, Features: []FeatureState{}, Stale: []WorktreeInfo{}, Reader: cfg.readerState(), VaultScope: strings.TrimSuffix(docScope, "/"),
+		Terminal: len(cfg.Terminal) > 0, AgentNames: cfg.agentNames()}
 	byName := map[string]*FeatureState{}
 	var order []string
 	for _, s := range scans {

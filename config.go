@@ -69,6 +69,16 @@ type ReaderConfig struct {
 	MaxAssetMB     int    `json:"maxAssetMB,omitempty"`
 }
 
+// SnapshotConfig limita o que cada snapshot guarda e por quanto tempo fica.
+// Keep e as idades valem por pasta; pre-remove tem retenção própria.
+type SnapshotConfig struct {
+	Keep          int `json:"keep"`
+	MaxAgeDays    int `json:"maxAgeDays"`
+	PreRemoveDays int `json:"preRemoveDays"`
+	MaxMB         int `json:"maxMB"`
+	FileMaxMB     int `json:"fileMaxMB"`
+}
+
 type Config struct {
 	Vault             *VaultConfig  `json:"vault,omitempty"`
 	Reader            *ReaderConfig `json:"reader,omitempty"`
@@ -81,6 +91,23 @@ type Config struct {
 	DateFormat        string        `json:"dateFormat"`
 	Editor            []string      `json:"editor"`
 	Repos             []RepoConfig  `json:"repos"`
+	// StateDir guarda registros dos agentes e snapshots. Padrão igual ao do
+	// subcomando hook (WT_STATE_DIR ou ~/.local/state/worktree-app).
+	StateDir string `json:"stateDir,omitempty"`
+	// Distro do WSL usada pelo terminal (padrão: $WSL_DISTRO_NAME).
+	Distro string `json:"distro,omitempty"`
+	// Terminal é o argv da aba nova, com {title} {path} {distro} {cmd}.
+	Terminal []string `json:"terminal,omitempty"`
+	// Agents: como abrir/retomar cada agente pelo botão do card.
+	Agents map[string]AgentLaunch `json:"agents,omitempty"`
+	// DiffMaxKB corta o patch mostrado em "Comparar" (padrão 2048).
+	DiffMaxKB int `json:"diffMaxKB,omitempty"`
+	// Snapshots: retenção e limites dos snapshots em StateDir/snapshots.
+	Snapshots *SnapshotConfig `json:"snapshots,omitempty"`
+}
+
+func defaultSnapshotConfig() SnapshotConfig {
+	return SnapshotConfig{Keep: 10, MaxAgeDays: 30, PreRemoveDays: 90, MaxMB: 100, FileMaxMB: 20}
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -105,6 +132,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if c.Vault != nil && c.Vault.Docs != "" && !filepath.IsAbs(c.Vault.Docs) {
 		c.Vault.Docs = filepath.Join(filepath.Dir(path), c.Vault.Docs)
+	}
+	if c.StateDir != "" && !filepath.IsAbs(c.StateDir) {
+		c.StateDir = filepath.Join(filepath.Dir(path), c.StateDir)
 	}
 	applyDefaults(&c)
 	if err := c.validate(); err != nil {
@@ -131,6 +161,46 @@ func applyDefaults(c *Config) {
 	}
 	if len(c.Editor) == 0 {
 		c.Editor = []string{"code"}
+	}
+	if c.StateDir == "" {
+		c.StateDir = defaultStateDir()
+	}
+	c.StateDir = filepath.Clean(c.StateDir)
+	if c.Distro == "" {
+		c.Distro = os.Getenv("WSL_DISTRO_NAME")
+	}
+	if c.Terminal == nil {
+		c.Terminal = defaultTerminal(c.Distro)
+	}
+	if c.Agents == nil {
+		c.Agents = defaultAgents()
+	}
+	if c.DiffMaxKB <= 0 {
+		c.DiffMaxKB = diffDefaultMaxKB
+	}
+	if c.Snapshots == nil {
+		sc := defaultSnapshotConfig()
+		c.Snapshots = &sc
+	} else {
+		// Valores ausentes/zero no config caem no padrão; o zero explícito só
+		// existe para testes de falha (snapshotCfg respeita quem não passou
+		// por applyDefaults).
+		d := defaultSnapshotConfig()
+		if c.Snapshots.Keep <= 0 {
+			c.Snapshots.Keep = d.Keep
+		}
+		if c.Snapshots.MaxAgeDays <= 0 {
+			c.Snapshots.MaxAgeDays = d.MaxAgeDays
+		}
+		if c.Snapshots.PreRemoveDays <= 0 {
+			c.Snapshots.PreRemoveDays = d.PreRemoveDays
+		}
+		if c.Snapshots.MaxMB <= 0 {
+			c.Snapshots.MaxMB = d.MaxMB
+		}
+		if c.Snapshots.FileMaxMB <= 0 {
+			c.Snapshots.FileMaxMB = d.FileMaxMB
+		}
 	}
 	c.Root = filepath.Clean(c.Root)
 	if c.Vault != nil {
@@ -198,6 +268,15 @@ func (c *Config) validate() error {
 	}
 	if len(c.Repos) == 0 {
 		return errors.New("nenhum repo configurado")
+	}
+	if err := c.validateTerminal(); err != nil {
+		return err
+	}
+	if c.Snapshots != nil {
+		sc := *c.Snapshots
+		if sc.Keep < 0 || sc.MaxAgeDays < 0 || sc.PreRemoveDays < 0 || sc.MaxMB < 0 || sc.FileMaxMB < 0 {
+			return errors.New("snapshots: valores não podem ser negativos")
+		}
 	}
 	if c.Vault != nil {
 		if s := cleanVaultScope(c.Vault.Scope); strings.Contains(s, "..") || strings.ContainsAny(s, ":\x00[]|") {

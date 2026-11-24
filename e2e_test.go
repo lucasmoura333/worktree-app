@@ -59,6 +59,7 @@ func read(t *testing.T, p string) string {
 func fixture(t *testing.T) *Config {
 	t.Helper()
 	tmp := t.TempDir()
+	t.Setenv("WT_STATE_DIR", filepath.Join(tmp, "state"))
 	origin := filepath.Join(tmp, "origin.git")
 	seed := filepath.Join(tmp, "seed")
 	run(t, tmp, "git", "init", "-q", "--bare", "-b", "dev", origin)

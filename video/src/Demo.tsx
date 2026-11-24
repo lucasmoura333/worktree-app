@@ -242,6 +242,7 @@ const Outro: React.FC<{ dur: number }> = ({ dur }) => {
   const k = spring({ frame: f, fps, config: { damping: 14 } });
   const lines = [
     ["examples/vault", "Vault de exemplo com kanbans, savepoints e anexos"],
+    ["hooks", "Claude Code, Codex e opencode no mesmo painel"],
     ["127.0.0.1", "só local; nada de push, só git fetch"],
     ["MIT", "github.com/lucasmoura333/worktree-app"],
   ];
@@ -283,6 +284,49 @@ const Outro: React.FC<{ dur: number }> = ({ dur }) => {
 };
 
 // Linha do tempo (frames a 30 fps).
+// Quadros do terminal (public/term, gerados por scripts/terminal-frames.py a
+// partir de um tmux real numa worktree de exemplo). Cada número é quanto o
+// quadro fica na tela, em unidades de TERM_UNIT frames.
+const TERM_HOLDS = [3, 1, 1, 1, 1, 1, 5, 1, 1, 1, 1, 1, 1, 1, 5, 1, 1, 6];
+const TERM_UNIT = 4;
+const TERM_LEN = TERM_HOLDS.reduce((a, b) => a + b, 0) * TERM_UNIT;
+
+const TerminalScene: React.FC<{ dur: number; step: string; title: string; sub?: string }> = ({ dur, step, title, sub }) => {
+  const f = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const k = spring({ frame: f - 4, fps, config: { damping: 15, stiffness: 110 } });
+  const t = Math.max(0, f - 14);
+  let acc = 0;
+  let idx = TERM_HOLDS.length - 1;
+  for (let i = 0; i < TERM_HOLDS.length; i++) {
+    acc += TERM_HOLDS[i] * TERM_UNIT;
+    if (t < acc) {
+      idx = i;
+      break;
+    }
+  }
+  const src = `term/term-${String(idx).padStart(2, "0")}.png`;
+  return (
+    <Fade dur={dur}>
+      <AbsoluteFill style={{ background: PAPER }}>
+        <Img src={staticFile("agents-menu.png")} style={{ width: 1280, height: 720, filter: "blur(6px) brightness(0.8)" }} />
+        <div
+          style={{
+            position: "absolute",
+            left: 90,
+            top: 70,
+            width: 1100,
+            transform: `translateY(${(1 - k) * 420}px) rotate(${(1 - k) * 3}deg)`,
+          }}
+        >
+          <Img src={staticFile(src)} style={{ width: 1100 }} />
+        </div>
+        <Caption step={step} title={title} sub={sub} />
+      </AbsoluteFill>
+    </Fade>
+  );
+};
+
 const S = (s: number, x: number, y: number): Cam => ({ s, x, y });
 type Part = { dur: number; el: (dur: number) => React.ReactNode };
 const PARTS: Part[] = [
@@ -315,14 +359,40 @@ const PARTS: Part[] = [
     ),
   },
   {
-    dur: 120,
+    dur: 150,
     el: (d) => (
       <Scene
         dur={d}
-        step="03 · savepoints"
-        title="O contexto vem junto"
-        sub="O frontmatter do savepoint liga a worktree à frente, sem copiar nada à mão."
-        shots={[{ src: "reader-savepoint.png", from: S(1, 640, 360), to: S(1.35, 330, 380) }]}
+        step="03 · agentes"
+        title="Quem trabalha e quem espera você"
+        sub="Hooks do Claude Code, Codex e opencode marcam o estado de cada sessão no card."
+        shots={[
+          { src: "agents-bar.png", from: S(1, 640, 360), to: S(1.9, 700, 40) },
+          { src: "agents-waiting.png", from: S(1.1, 420, 150), to: S(1.4, 420, 120) },
+        ]}
+      />
+    ),
+  },
+  {
+    dur: 90,
+    el: (d) => (
+      <Scene
+        dur={d}
+        step="04 · terminal"
+        title="Abrir ou retomar um agente"
+        sub="Pelo próprio card: terminal, agente novo ou a última sessão."
+        shots={[{ src: "agents-menu.png", from: S(1, 640, 360), to: S(1.5, 470, 330) }]}
+      />
+    ),
+  },
+  {
+    dur: 30 + TERM_LEN,
+    el: (d) => (
+      <TerminalScene
+        dur={d}
+        step="04 · terminal"
+        title="Já na worktree certa"
+        sub="Uma aba nova no Windows Terminal, dentro da worktree e da branch."
       />
     ),
   },
@@ -331,7 +401,46 @@ const PARTS: Part[] = [
     el: (d) => (
       <Scene
         dur={d}
-        step="04 · leitor"
+        step="05 · comparar"
+        title="Diff entre worktrees"
+        sub="Contra a base, com o que não foi commitado, ou contra outra worktree. Só leitura."
+        shots={[
+          { src: "diff-base.png", from: S(1, 640, 360), to: S(1.2, 120, 250) },
+          { src: "diff-file.png", from: S(1.15, 120, 300), to: S(1.4, 120, 330) },
+        ]}
+      />
+    ),
+  },
+  {
+    dur: 110,
+    el: (d) => (
+      <Scene
+        dur={d}
+        step="06 · snapshots"
+        title="Um retrato antes de mexer"
+        sub="Patch, arquivos novos e commits fora do remoto. Segredos e deps ficam de fora."
+        shots={[{ src: "snapshots.png", from: S(1, 640, 360), to: S(1.35, 110, 300) }]}
+      />
+    ),
+  },
+  {
+    dur: 120,
+    el: (d) => (
+      <Scene
+        dur={d}
+        step="07 · savepoints"
+        title="O contexto vem junto"
+        sub="O frontmatter do savepoint liga a worktree à frente, sem copiar nada à mão."
+        shots={[{ src: "reader-savepoint.png", from: S(1, 640, 360), to: S(1.35, 330, 380) }]}
+      />
+    ),
+  },
+  {
+    dur: 120,
+    el: (d) => (
+      <Scene
+        dur={d}
+        step="08 · leitor"
         title="Notas com imagens e anexos"
         sub="SVG, PDF, CSV e link quebrado marcado, tudo dentro do escopo do Vault."
         shots={[
@@ -342,11 +451,11 @@ const PARTS: Part[] = [
     ),
   },
   {
-    dur: 150,
+    dur: 120,
     el: (d) => (
       <Scene
         dur={d}
-        step="05 · mapa"
+        step="09 · mapa"
         title="Grafo local das notas"
         sub="Frente → worktree → savepoint, no estilo do Obsidian."
         shots={[

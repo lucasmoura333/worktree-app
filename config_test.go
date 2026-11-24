@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,7 @@ func writeConfig(t *testing.T, body string) string {
 
 func TestLoadConfigJSONCAndDefaults(t *testing.T) {
 	t.Setenv("WT_STATE_DIR", "")
+	t.Setenv("WSL_DISTRO_NAME", "Exemplo")
 	t.Cleanup(func() { setVaultScope("") })
 	p := writeConfig(t, `{
   // comentário de linha
@@ -81,8 +83,16 @@ func TestLoadConfigJSONCAndDefaults(t *testing.T) {
 	if cfg.Snapshots == nil || cfg.Snapshots.Keep <= 0 || cfg.Snapshots.MaxMB <= 0 {
 		t.Errorf("snapshots sem padrão: %+v", cfg.Snapshots)
 	}
-	if cfg.DiffMaxKB != diffDefaultMaxKB || len(cfg.Agents) == 0 || cfg.Terminal == nil {
-		t.Errorf("diff/agents/terminal sem padrão: %d %v %v", cfg.DiffMaxKB, cfg.Agents, cfg.Terminal)
+	if cfg.DiffMaxKB != diffDefaultMaxKB || len(cfg.Agents) == 0 {
+		t.Errorf("diff/agents sem padrão: %d %v", cfg.DiffMaxKB, cfg.Agents)
+	}
+	// Terminal padrão só existe no WSL (Linux com distro); fora dele fica vazio.
+	if runtime.GOOS == "linux" && (cfg.Distro != "Exemplo" || len(cfg.Terminal) == 0) {
+		t.Errorf("WSL: distro %q, terminal %v", cfg.Distro, cfg.Terminal)
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	if c2, err := loadConfig(p); err != nil || len(c2.Terminal) != 0 {
+		t.Errorf("sem distro o terminal deveria ficar vazio: %v %v", c2.Terminal, err)
 	}
 	if cfg.Reader.Images == nil || !*cfg.Reader.Images || cfg.Reader.ExternalImages == nil || *cfg.Reader.ExternalImages {
 		t.Errorf("reader images: %+v", cfg.Reader)

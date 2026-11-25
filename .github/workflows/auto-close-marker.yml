@@ -1,0 +1,83 @@
+name: auto-close-marker
+
+# Fallback explícito para quando o PR não usa o "Closes #N" nativo do GitHub.
+# O body do PR deve trazer uma linha exata:  AutoClose: #123
+#
+# Preferir o nativo sempre que possível; esta action existe para casos em que
+# o fechamento só deve acontecer por um merge específico ou de outro repo.
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Número da issue a fechar (teste manual)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            let issueNumbers = [];
+            let source = "";
+
+            if (context.eventName === "pull_request") {
+              const body = context.payload.pull_request.body || "";
+              issueNumbers = [...body.matchAll(/^\s*autoclose:\s*#(\d+)\s*$/gim)]
+                .map((m) => Number(m[1]));
+              source = `merge do #${context.payload.pull_request.number}`;
+            } else {
+              const n = Number(context.payload.inputs?.issue);
+              if (Number.isSafeInteger(n) && n > 0) issueNumbers = [n];
+              source = "execução manual";
+            }
+
+            issueNumbers = [...new Set(issueNumbers)].filter((n) => Number.isSafeInteger(n) && n > 0);
+            if (issueNumbers.length === 0) {
+              core.info("Sem 'AutoClose: #N' no body; nada a fazer.");
+              return;
+            }
+
+            let failed = false;
+            for (const issue_number of issueNumbers) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  ...context.repo,
+                  issue_number,
+                });
+                if (issue.pull_request) {
+                  core.info(`#${issue_number} é um PR; ignorando.`);
+                  continue;
+                }
+                if (issue.state === "closed") {
+                  core.info(`#${issue_number} já está fechada.`);
+                  continue;
+                }
+                await github.rest.issues.createComment({
+                  ...context.repo,
+                  issue_number,
+                  body: `Fechada pela action \`auto-close-marker\` (${source}).`,
+                });
+                await github.rest.issues.update({
+                  ...context.repo,
+                  issue_number,
+                  state: "closed",
+                  state_reason: "completed",
+                });
+                core.info(`#${issue_number} fechada (${source}).`);
+              } catch (err) {
+                failed = true;
+                core.error(`Falha ao fechar #${issue_number}: ${err.message}`);
+              }
+            }
+            if (failed) core.setFailed("Uma ou mais issues não puderam ser fechadas.");

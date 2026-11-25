@@ -17,9 +17,11 @@
 </p>
 
 <p align="center">
+  <a href="https://lucasmoura333.github.io/worktree-app/"><b>Prévia online</b></a> ·
   <a href="#começar">Começar</a> ·
   <a href="examples/README.md">Vault de exemplo</a> ·
-  <a href="video/README.md">Como o vídeo é gerado</a>
+  <a href="video/README.md">Como o vídeo é gerado</a> ·
+  <a href="README.en.md">English</a>
 </p>
 
 ---
@@ -59,6 +61,7 @@ Opções:
 | `-config caminho` | config a usar (padrão: `config.json` ao lado do executável) |
 | `-no-open` | não abre o navegador |
 | `-demo` | prévia com dados de exemplo em `127.0.0.1:7788`; não lê nem altera nada |
+| `-export-static pasta` | gera a prévia como site estático (mural, mapa e leitor com o Vault de `examples/`) para o GitHub Pages; `-export-vault` troca o Vault de exemplo |
 
 Rodar de novo com o app aberto só abre o navegador. Se for usar "instalar
 dependências", abra pelo terminal em que `yarn`/`npm`/`composer` etc. estão no

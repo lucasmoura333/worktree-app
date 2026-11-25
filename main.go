@@ -30,7 +30,17 @@ func main() {
 	cfgPath := flag.String("config", "", "caminho do config.json (padrão: ao lado do executável)")
 	demo := flag.Bool("demo", false, "prévia visual em 127.0.0.1:7788, com exemplos e sem alterar repositórios ou Vault")
 	noOpen := flag.Bool("no-open", false, "não abrir o navegador")
+	exportDir := flag.String("export-static", "", "gera a prévia como site estático nesta pasta (GitHub Pages) e sai")
+	exportVault := flag.String("export-vault", "examples/vault", "Vault de exemplo usado por -export-static")
 	flag.Parse()
+
+	if *exportDir != "" {
+		if err := exportStatic(*exportDir, *exportVault); err != nil {
+			log.Fatalf("export: %v", err)
+		}
+		fmt.Printf("prévia estática gerada em %s\n", *exportDir)
+		return
+	}
 
 	if *cfgPath == "" {
 		*cfgPath = defaultConfigPath()

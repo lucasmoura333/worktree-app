@@ -27,6 +27,9 @@ type AgentInfo struct {
 	Alive   bool   `json:"alive"`
 	// NoHook: processo de agente achado em /proc sem registro de hook.
 	NoHook bool `json:"noHook,omitempty"`
+	// Usage: consumo numérico da sessão (tokens/custo), quando a fonte existe.
+	// Nunca carrega prompt nem conteúdo do transcript.
+	Usage *AgentUsage `json:"usage,omitempty"`
 }
 
 type AgentCounts struct {
@@ -43,6 +46,9 @@ type AgentsState struct {
 	// Resumable: por worktree (path), agentes com sessão para retomar. O
 	// card usa para ligar o "↺ retomar" sem redesenhar o menu.
 	Resumable map[string][]string `json:"resumable"`
+	// LiveByPath: quantos agentes vivos há em cada worktree. O card avisa
+	// quando passa de um, porque duas sessões na mesma árvore se atrapalham.
+	LiveByPath map[string]int `json:"liveByPath,omitempty"`
 }
 
 // wtEntry é o mínimo de uma worktree para ligar cwd → card.
@@ -226,6 +232,10 @@ func collectAgents(entries []wtEntry, recs []AgentRecord, procs []procAgent, dir
 		if !a.Alive {
 			continue
 		}
+		if st.LiveByPath == nil {
+			st.LiveByPath = map[string]int{}
+		}
+		st.LiveByPath[a.Path]++
 		switch a.State {
 		case agentWorking:
 			st.Counts.Working++
@@ -255,6 +265,7 @@ func (s *server) agentsState(ctx context.Context) AgentsState {
 	entries, recs := s.wts.get(ctx, s.cfg), loadAgentRecords(dir, time.Now())
 	st := collectAgents(entries, recs, scanProcAgents(), dir)
 	st.Resumable = resumableAgents(entries, recs, s.cfg.Agents)
+	s.usage.fill(ctx, st.Agents)
 	return st
 }
 

@@ -103,8 +103,10 @@ and dependencies that are links to another folder.
   with "force"); the hash is logged so it can be recreated. Remote branches and
   `tasks/` are never deleted.
 - **Broken entries**: worktrees whose folder is gone, with a `git worktree prune` button.
-- **Agents**: the top bar counts agents (Claude Code, Codex, opencode) that are
-  working, waiting for you or done, and each card shows the agent in its folder.
+- **Agents**: the top bar counts agents (Claude Code, Codex, opencode, agy) that are
+  working, waiting for you or done, and each card shows the agent in its folder, the
+  session usage (input/output tokens; cost when the source reports it) and a
+  **⚠ N live** warning when more than one session runs in the same worktree.
   It refreshes every 3 s from `/api/agents`, which runs no `git status` and does
   not touch the Vault. "🔕 Notify" enables a browser notification when an agent
   starts waiting for you. States come from hooks; without a hook, processes found
@@ -113,7 +115,8 @@ and dependencies that are links to another folder.
   folder; in the `···` menu, "▶ agent (new)" opens the agent there and
   "↺ agent (resume)" resumes the last session recorded in that worktree (it stays
   disabled, with the reason, until that agent has a session there; the
-  `/api/agents` poll re-enables it).
+  `/api/agents` poll re-enables it). If an agent is already live in the worktree,
+  "▶ new" asks for confirmation before opening another session in the same tree.
 - **Compare…**: read-only diff of the worktree against the repo base (includes
   uncommitted work and lists new files) or against another worktree of the same
   repo (commits only). Files from `copy` (`.env` and the like) and dependency
@@ -162,6 +165,15 @@ See [`config.example.json`](config.example.json) and the Portuguese
   and a local `Host`, which blocks requests from other pages in the browser.
 - No command changes the remote; removals check for changes and local commits.
 - The Vault is restricted to `vault.scope`.
+- The agent hook prints nothing except the JSON reply agy requires (`{}`, or
+  `{"decision":"allow"}` on Stop); it always exits 0 and stores only agent,
+  session, folder, state, timestamps and pid (0600). Prompts and transcripts are
+  never stored.
+- Session usage reads only numeric fields (tokens, cache, reasoning and cost)
+  from Claude Code and Codex transcripts, incrementally, and from opencode via
+  `opencode db` (a numeric-only SQL query); prompts, replies and tool output are
+  never kept or returned. agy (protobuf) shows "—" until the binary has a
+  numeric source for it.
 
 ## Credits and license
 

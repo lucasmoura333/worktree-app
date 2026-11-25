@@ -659,7 +659,8 @@ function worktreeCard(wt, f, removed = false) {
         ? h(
             "span",
             { class: "agent-slot", "data-agent-path": wt.path },
-            agentsState.agents.filter((a) => a.alive && a.path === wt.path).map(agentChip),
+            liveAgentsIn(wt.path).map(agentChip),
+            liveCount(wt.path) > 1 ? concurrentChip(liveCount(wt.path), liveAgentsIn(wt.path)) : null,
           )
         : null,
       h(
@@ -1389,8 +1390,66 @@ function agentKey(a) {
   return a.agent + "/" + (a.session || "pid" + a.pid);
 }
 
+function liveAgentsIn(path) {
+  return agentsState.agents.filter((a) => a.alive && a.path === path);
+}
+
+function liveCount(path) {
+  const n = agentsState.liveByPath?.[path];
+  return n == null ? liveAgentsIn(path).length : n;
+}
+
+function fmtTokens(n) {
+  if (!n) return "0";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
+// Consumo vindo de /api/agents. Para quem não tem fonte numérica (agy) ou
+// sessão ainda sem consumo (opencode), o card mostra "—" em vez de esconder.
+function usageLabel(a) {
+  const u = a.usage;
+  if (!u) return a.agent === "agy" || a.agent === "opencode" ? "—" : "";
+  const parts = [];
+  if (u.in) parts.push("↑" + fmtTokens(u.in));
+  if (u.out) parts.push("↓" + fmtTokens(u.out));
+  if (u.hasCost) parts.push("US$" + Number(u.costUsd || 0).toFixed(2));
+  return parts.join(" ") || "—";
+}
+
+function usageTitle(a) {
+  const u = a.usage;
+  if (u) {
+    const parts = ["tokens: " + (u.in || 0) + " entrada, " + (u.out || 0) + " saída"];
+    if (u.cacheRead) parts.push("cache lido " + u.cacheRead);
+    if (u.cacheWrite) parts.push("cache escrito " + u.cacheWrite);
+    if (u.reasoning) parts.push("raciocínio " + u.reasoning);
+    if (u.hasCost) parts.push("custo estimado US$ " + Number(u.costUsd || 0).toFixed(4));
+    if (u.source) parts.push("fonte " + u.source);
+    return parts.join(" · ");
+  }
+  if (a.agent === "agy") return "tokens indisponíveis: o agy guarda a sessão em blob protobuf";
+  if (a.agent === "opencode") return "consumo indisponível: sessão sem mensagens ou opencode CLI ausente";
+  return "sem consumo registrado para esta sessão";
+}
+
+function concurrentChip(n, live) {
+  return h(
+    "span",
+    {
+      class: "agent-chip concurrent",
+      title:
+        live.map((a) => a.agent + "/" + (a.session || a.pid)).join("\n") +
+        "\nDuas sessões na mesma worktree podem sobrescrever o trabalho uma da outra.",
+    },
+    "⚠ " + n + " vivos",
+  );
+}
+
 function agentChip(a) {
   const label = AGENT_LABEL[a.state] || a.state;
+  const u = usageLabel(a);
   return h(
     "span",
     {
@@ -1400,9 +1459,12 @@ function agentChip(a) {
         " · " +
         label +
         (a.since ? " desde " + new Date(a.since).toLocaleTimeString("pt-BR") : "") +
-        (a.session ? "\nsessão " + a.session : ""),
+        (a.session ? "\nsessão " + a.session : "") +
+        "\n" +
+        usageTitle(a),
     },
     a.agent + " · " + label,
+    u ? h("span", { class: "agent-usage" }, " · " + u) : null,
   );
 }
 
@@ -1632,6 +1694,20 @@ async function openSnapshots(wt) {
 }
 
 async function launchTerminal(path, agent, resume) {
+  if (!resume) {
+    const live = liveAgentsIn(path);
+    if (live.length) {
+      const names = [...new Set(live.map((a) => a.agent))].join(", ");
+      const ok = window.confirm(
+        "Já há " +
+          plural(live.length, "agente vivo", "agentes vivos") +
+          " nesta worktree (" +
+          names +
+          "). Duas sessões na mesma árvore podem sobrescrever o trabalho uma da outra. Abrir outra mesmo assim?",
+      );
+      if (!ok) return;
+    }
+  }
   try {
     await postJSON("/api/terminal", { path, agent, resume });
     logLine({
@@ -1691,11 +1767,15 @@ function paintAgents() {
   );
   bar.hidden = false;
   for (const slot of document.querySelectorAll("[data-agent-path]")) {
-    const mine = live.filter((a) => a.path === slot.dataset.agentPath);
-    slot.replaceChildren(...mine.map(agentChip));
-    slot
-      .closest(".worktree-card")
-      ?.classList.toggle("agent-waiting", mine.some((a) => a.state === "waiting"));
+    const path = slot.dataset.agentPath;
+    const mine = live.filter((a) => a.path === path);
+    const n = liveCount(path);
+    const nodes = mine.map(agentChip);
+    if (n > 1) nodes.push(concurrentChip(n, mine));
+    slot.replaceChildren(...nodes);
+    const card = slot.closest(".worktree-card");
+    card?.classList.toggle("agent-waiting", mine.some((a) => a.state === "waiting"));
+    card?.classList.toggle("agent-concurrent", n > 1);
   }
   for (const btn of document.querySelectorAll("[data-resume-agent]")) paintResume(btn);
 }

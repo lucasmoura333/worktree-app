@@ -2010,6 +2010,18 @@ button.agent-chip {
 .agent-chip.running {
   color: var(--muted);
 }
+.agent-chip .agent-usage {
+  font-weight: normal;
+  opacity: 0.8;
+}
+.agent-chip.concurrent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.worktree-card.agent-concurrent {
+  outline: 3px dashed var(--accent);
+  outline-offset: 2px;
+}
 .worktree-card.agent-waiting {
   outline: 3px solid var(--accent);
   outline-offset: 2px;

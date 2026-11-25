@@ -1,0 +1,33 @@
+{
+  "worktree-status": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent agy"
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent agy"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent agy"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "\"$HOME/.local/bin/wt-street-linux\" hook --agent agy"
+      }
+    ]
+  }
+}

@@ -34,6 +34,7 @@ type server struct {
 	graph   graphCache
 	ports   *portAllocator
 	wts     wtIndex
+	usage   usageReader
 	launch  func(argv []string) error
 }
 

@@ -124,16 +124,20 @@ faltando, e deps que são link para outra pasta.
   log para recriar com `git branch <nome> <hash>`. A branch do remoto nunca é
   tocada, e `tasks/` nunca é apagada.
 - **Registros quebrados**: worktrees cuja pasta sumiu, com botão de `git worktree prune`.
-- **Agentes**: a barra do topo conta quantos agentes (Claude Code, Codex, opencode)
-  estão trabalhando, esperando você ou concluídos, e cada card mostra o agente da
-  sua pasta. Atualiza a cada 3 s pelo `/api/agents`, que não roda `git status` nem
-  toca o Vault. "🔕 Avisar" liga uma notificação do navegador quando um agente passa
-  a esperar você. Os estados vêm de hooks; sem hook, os processos achados em `/proc`
-  aparecem como "ativo (sem hook)". Veja [`examples/hooks/`](examples/hooks/README.md).
+- **Agentes**: a barra do topo conta quantos agentes (Claude Code, Codex, opencode,
+  agy) estão trabalhando, esperando você ou concluídos, e cada card mostra o agente
+  da sua pasta, o consumo da sessão (tokens de entrada/saída; custo quando a fonte
+  informa) e um aviso **⚠ N vivos** quando há mais de uma sessão na mesma worktree.
+  Atualiza a cada 3 s pelo `/api/agents`, que não roda `git status` nem toca o Vault.
+  "🔕 Avisar" liga uma notificação do navegador quando um agente passa a esperar você.
+  Os estados vêm de hooks; sem hook, os processos achados em `/proc` aparecem como
+  "ativo (sem hook)". Veja [`examples/hooks/`](examples/hooks/README.md).
 - **Terminal e agentes** (WSL): `>_` abre uma aba do Windows Terminal na pasta da
   worktree; no menu `···`, "▶ agente (novo)" abre o agente ali e "↺ agente (retomar)"
   retoma a última sessão registrada nessa worktree (fica desabilitado, com a dica do
   motivo, enquanto não houver sessão daquele agente ali; o poll de `/api/agents` religa).
+  Se já houver agente vivo na worktree, o "▶ novo" pede confirmação antes de abrir
+  outra sessão na mesma árvore.
 - **Comparar…**: diff só leitura da worktree contra a base do repo (inclui o que não
   foi commitado e lista os arquivos novos) ou contra outra worktree do mesmo repo
   (só commits). Arquivos do `copy` (`.env` e afins) e pastas de deps ficam de fora;
@@ -173,7 +177,7 @@ Aceita comentários `//`. Veja [`config.example.json`](config.example.json).
 | `stateDir` | registros dos agentes e snapshots (padrão `$WT_STATE_DIR` ou `~/.local/state/worktree-app`) |
 | `distro` | distro do WSL para o terminal (padrão `$WSL_DISTRO_NAME`) |
 | `terminal` | argv da aba nova com `{title}` `{path}` `{distro}` `{cmd}`; padrão no WSL: `wt.exe -w 0 nt --title {title} wsl.exe -d {distro} --cd {path} -e {cmd}`; vazio desliga |
-| `agents` | `{"nome": {"new": [...], "resume": [..., "{session}"]}}`; padrão: `claude`, `codex`, `opencode` |
+| `agents` | `{"nome": {"new": [...], "resume": [..., "{session}"]}}`; padrão: `claude`, `codex`, `opencode`; ex. agy: `{"new":["agy"],"resume":["agy","--conversation","{session}"]}` |
 | `diffMaxKB` | corte do patch em "Comparar" (padrão 2048) |
 | `snapshots` | `{"keep":10,"maxAgeDays":30,"preRemoveDays":90,"maxMB":100,"fileMaxMB":20}`: retenção por pasta, limite total e por arquivo |
 
@@ -260,9 +264,15 @@ SVG é servido com CSP sem script.
   `Host` local, o que bloqueia requisições de outras páginas do navegador.
 - Nenhum comando altera o remoto; remoções conferem alterações e commits locais.
 - O Vault fica restrito a `vault.scope`.
-- O hook dos agentes (`wt-street-linux hook`) não imprime nada, sempre sai com 0 e
+- O hook dos agentes (`wt-street-linux hook`) não imprime nada, exceto a resposta
+  JSON que o agy exige (`{}` ou `{"decision":"allow"}` no Stop); sempre sai com 0 e
   grava só agente, sessão, pasta, estado, horários e pid (0600). Prompt e transcript
-  não são lidos para o registro. Nada disso vai para o Vault.
+  não são gravados. Nada disso vai para o Vault.
+- O consumo por sessão lê apenas campos numéricos (tokens, cache, raciocínio e custo)
+  dos transcripts do Claude Code e do Codex, de forma incremental, e do opencode via
+  `opencode db` (consulta SQL só com números). Prompt, resposta e saída de ferramenta
+  não são guardados nem devolvidos. O agy (protobuf) aparece como "—" até existir uma
+  fonte numérica no binário.
 - O terminal só aceita worktrees conhecidas e monta tudo como argv, sem `cmd.exe`;
   argumentos com espaço, aspas, `;` ou `&` são recusados. A sessão a retomar vem do
   registro do hook, nunca do navegador.

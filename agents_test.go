@@ -26,8 +26,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// hookOut roda o hook capturando o stdout, que precisa ficar vazio.
-func hookOut(t *testing.T, agent, payload string, now time.Time) {
+// hookStdout roda o hook e devolve o que foi escrito no stdout.
+func hookStdout(t *testing.T, agent, payload string, now time.Time) string {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -39,7 +39,13 @@ func hookOut(t *testing.T, agent, payload string, now time.Time) {
 	os.Stdout = old
 	w.Close()
 	out, _ := io.ReadAll(r)
-	if len(out) != 0 {
+	return string(out)
+}
+
+// hookOut roda o hook capturando o stdout, que precisa ficar vazio.
+func hookOut(t *testing.T, agent, payload string, now time.Time) {
+	t.Helper()
+	if out := hookStdout(t, agent, payload, now); out != "" {
 		t.Fatalf("hook escreveu no stdout: %q", out)
 	}
 }
@@ -107,6 +113,46 @@ func TestHookStatesAndSilence(t *testing.T) {
 	}
 	if after, _ := os.ReadDir(dir); len(after) != len(before) {
 		t.Fatalf("entrada inválida gravou arquivo: %d -> %d", len(before), len(after))
+	}
+}
+
+// O agy usa camelCase e exige uma resposta JSON no stdout; o resto dos agentes
+// continua mudo. A sessão dele vem em conversationId.
+func TestAgyHookStateAndReply(t *testing.T) {
+	if !knownAgents["agy"] {
+		t.Fatal("agy não está em knownAgents")
+	}
+	state := t.TempDir()
+	t.Setenv("WT_STATE_DIR", state)
+	dir := filepath.Join(state, "agents")
+	cwd := t.TempDir()
+	t0 := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	steps := []struct {
+		payload, wantState, wantOut string
+	}{
+		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"SessionStart","lastUserInput":"segredo"}`, agentWaiting, `{}`},
+		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"PreInvocation"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"PostToolUse"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","workspacePaths":["` + cwd + `"],"hookEventName":"PreInvocation"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"Stop"}`, agentDone, `{"decision":"allow"}`},
+	}
+	for i, s := range steps {
+		out := hookStdout(t, "agy", s.payload, t0.Add(time.Duration(i)*time.Second))
+		if out != s.wantOut {
+			t.Fatalf("passo %d: stdout %q, quer %q", i, out, s.wantOut)
+		}
+		r, ok := hookRec(t, dir, "agy", "agy-1")
+		if !ok || r.State != s.wantState || r.Cwd != cwd {
+			t.Fatalf("passo %d: %+v ok=%v, quer %s em %s", i, r, ok, s.wantState, cwd)
+		}
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "agy-agy-1.json"))
+	if strings.Contains(string(b), "segredo") {
+		t.Fatal("prompt vazou para o registro do agy")
+	}
+	// Mesmo inválido, o hook do agy responde JSON (não deixa o CLI sem resposta).
+	if out := hookStdout(t, "agy", `{"conversationId":"../../x","cwd":"`+cwd+`","hookEventName":"Stop"}`, t0); out != `{"decision":"allow"}` {
+		t.Fatalf("stdout para sessão inválida: %q", out)
 	}
 }
 
@@ -192,6 +238,32 @@ func TestCollectAgentsLivenessAndCounts(t *testing.T) {
 	}
 	if len(st.Agents) != 5 {
 		t.Fatalf("esperava 5 entradas, veio %d: %+v", len(st.Agents), st.Agents)
+	}
+}
+
+// Duas sessões vivas na mesma worktree precisam aparecer em liveByPath para o
+// card avisar antes de abrir uma terceira.
+func TestCollectAgentsConcurrentPerWorktree(t *testing.T) {
+	proc := t.TempDir()
+	old := procRoot
+	procRoot = proc
+	t.Cleanup(func() { procRoot = old })
+
+	wt := "/p/acme-app-a"
+	entries := []wtEntry{{Repo: "app", Path: wt, Feature: "a"}}
+	fakeProc(t, proc, 100, 1, "claude", wt)
+	fakeProc(t, proc, 200, 1, "agy", wt+"/src")
+	fakeProc(t, proc, 300, 1, "codex", "/p/acme-app-b")
+
+	st := collectAgents(entries, nil, scanProcAgents(), "dir")
+	if got := st.LiveByPath[wt]; got != 2 {
+		t.Fatalf("liveByPath[%s] = %d, quer 2: %+v", wt, got, st.LiveByPath)
+	}
+	if got := st.LiveByPath["/p/acme-app-b"]; got != 0 {
+		t.Fatalf("worktree fora da lista entrou: %+v", st.LiveByPath)
+	}
+	if len(st.Agents) != 2 || !st.Agents[0].NoHook || !st.Agents[1].NoHook {
+		t.Fatalf("agentes: %+v", st.Agents)
 	}
 }
 

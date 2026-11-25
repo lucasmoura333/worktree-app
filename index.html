@@ -5,11 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#eeeae2" />
     <title>Worktree — seu código em movimento</title>
-    <meta name="description" content="Prévia online do worktree-app: painel local de git worktrees em Go, com notas no Obsidian. Dados de exemplo; nada é alterado." />
+    <meta
+      name="description"
+      content="Prévia online do worktree-app: painel local de git worktrees em Go, com notas no Obsidian. Dados de exemplo; nada é alterado."
+    />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="worktree-app" />
     <meta property="og:title" content="worktree-app — painel local de git worktrees" />
-    <meta property="og:description" content="Prévia online do worktree-app: painel local de git worktrees em Go, com notas no Obsidian. Dados de exemplo; nada é alterado." />
+    <meta
+      property="og:description"
+      content="Prévia online do worktree-app: painel local de git worktrees em Go, com notas no Obsidian. Dados de exemplo; nada é alterado."
+    />
     <meta property="og:url" content="https://lucasmoura333.github.io/worktree-app/" />
     <meta property="og:image" content="https://lucasmoura333.github.io/worktree-app/og.png" />
     <meta property="og:image:width" content="1280" />
@@ -56,7 +62,9 @@
           Workspace <span>/</span> <strong>Worktrees</strong>
         </div>
         <div class="top-actions">
-          <span id="updated" class="muted" aria-live="polite">Carregando…</span
+          <span id="agents-bar" class="agents-bar" aria-live="polite" hidden></span
+          ><button id="btn-notify" class="small" hidden title="Avisar quando um agente esperar por você">🔔 Avisar</button
+          ><span id="updated" class="muted" aria-live="polite">Carregando…</span
           ><button id="btn-refresh" class="act small">↻ Atualizar</button
           ><button id="btn-fetch" class="act small">Fetch em todos</button>
         </div>

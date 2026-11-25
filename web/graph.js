@@ -52,7 +52,7 @@ function showInGraph(id) {
 
 function renderGraph(box, items) {
   const opt = graphParams();
-  if (!state?.vault || state.demo) {
+  if (!state?.vault || previewOnly()) {
     box.replaceChildren(h("p", { class: "empty" }, "O mapa precisa do Vault configurado."));
     return;
   }

@@ -64,6 +64,8 @@ type ReaderState struct {
 
 type State struct {
 	Demo bool `json:"demo,omitempty"`
+	// DocsPreview: prévia estática com leitor e mapa das notas de exemplo.
+	DocsPreview bool `json:"docsPreview,omitempty"`
 	// Busy: havia uma operação em andamento; vínculos lidos, Vault não gravado.
 	Busy       bool           `json:"busy,omitempty"`
 	Vault      string         `json:"vault,omitempty"`

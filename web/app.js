@@ -41,6 +41,8 @@ async function postJSON(url, body) {
 
 let state = null;
 // Pasta do Vault que o servidor lê e escreve (vault.scope no config).
+// Prévia sem leitor/mapa (a prévia estática do GitHub Pages lê as notas de exemplo).
+const previewOnly = () => !!(state && state.demo && !state.docsPreview);
 const vaultScope = () => (state && state.vaultScope) || "worktree-app";
 let busy = false;
 const sel = {}; // repo -> { checked, mode, base, branch }
@@ -515,7 +517,7 @@ function noteHref(value) {
   );
 }
 function docLink(value, label, icon = "↗") {
-  if (state.demo && value)
+  if (previewOnly() && value)
     return h(
       "span",
       { class: "doc-link", title: notePath(value) },
@@ -839,7 +841,7 @@ function renderFeatures() {
           "div",
           { class: "group-heading" },
           h("span", { class: "group-dot", "aria-hidden": "true" }),
-          front && state.vault && !state.demo
+          front && state.vault && !previewOnly()
             ? h("a", { href: noteHref(front), "data-note": front }, noteLabel(front))
             : front
               ? noteLabel(front)

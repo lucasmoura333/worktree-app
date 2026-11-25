@@ -120,6 +120,38 @@ func lastSession(entries []wtEntry, recs []AgentRecord, agent, path string) stri
 	return best.Session
 }
 
+// resumableAgents diz, por worktree (path), quais agentes têm sessão para
+// retomar: o mesmo critério do lastSession (registro mais recente do agente
+// naquela worktree, com sessão), numa passada só pelos registros. Agente sem
+// "resume" configurado nunca entra. Nunca devolve nil (vira {} no JSON).
+func resumableAgents(entries []wtEntry, recs []AgentRecord, agents map[string]AgentLaunch) map[string][]string {
+	type key struct{ agent, path string }
+	best := map[key]AgentRecord{}
+	for _, r := range recs {
+		if a, ok := agents[r.Agent]; !ok || len(a.Resume) == 0 {
+			continue
+		}
+		e, ok := matchWorktree(entries, r.Cwd)
+		if !ok {
+			continue
+		}
+		k := key{r.Agent, e.Path}
+		if b := best[k]; r.TS.After(b.TS) {
+			best[k] = r
+		}
+	}
+	out := map[string][]string{}
+	for k, r := range best {
+		if r.Session != "" {
+			out[k.path] = append(out[k.path], k.agent)
+		}
+	}
+	for _, names := range out {
+		sort.Strings(names)
+	}
+	return out
+}
+
 func defaultLaunch(argv []string) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	hideWindow(cmd)

@@ -129,7 +129,8 @@ faltando, e deps que são link para outra pasta.
   aparecem como "ativo (sem hook)". Veja [`examples/hooks/`](examples/hooks/README.md).
 - **Terminal e agentes** (WSL): `>_` abre uma aba do Windows Terminal na pasta da
   worktree; no menu `···`, "▶ agente (novo)" abre o agente ali e "↺ agente (retomar)"
-  retoma a última sessão registrada nessa worktree.
+  retoma a última sessão registrada nessa worktree (fica desabilitado, com a dica do
+  motivo, enquanto não houver sessão daquele agente ali; o poll de `/api/agents` religa).
 - **Comparar…**: diff só leitura da worktree contra a base do repo (inclui o que não
   foi commitado e lista os arquivos novos) ou contra outra worktree do mesmo repo
   (só commits). Arquivos do `copy` (`.env` e afins) e pastas de deps ficam de fora;

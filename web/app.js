@@ -625,7 +625,17 @@ function worktreeCard(wt, f, removed = false) {
     !removed && state.terminal
       ? (state.agentNames || []).flatMap((ag) => [
           h("button", { onclick: () => launchTerminal(wt.path, ag, false) }, "▶ " + ag + " (novo)"),
-          h("button", { onclick: () => launchTerminal(wt.path, ag, true) }, "↺ " + ag + " (retomar)"),
+          paintResume(
+            h(
+              "button",
+              {
+                "data-resume-path": wt.path,
+                "data-resume-agent": ag,
+                onclick: () => launchTerminal(wt.path, ag, true),
+              },
+              "↺ " + ag + " (retomar)",
+            ),
+          ),
         ])
       : null,
     !removed
@@ -1631,6 +1641,19 @@ async function launchTerminal(path, agent, resume) {
   }
 }
 
+// O "↺ retomar" só vale com sessão registrada do agente na worktree
+// (agentsState.resumable, mesmo critério do servidor). O menu não é
+// redesenhado a cada poll: paintAgents só religa/desliga o botão existente.
+function paintResume(btn) {
+  const { resumePath: path, resumeAgent: ag } = btn.dataset;
+  const ok = (agentsState.resumable?.[path] || []).includes(ag);
+  btn.disabled = !ok;
+  btn.title = ok
+    ? "Retomar a última sessão de " + ag + " nesta worktree"
+    : "Nenhuma sessão de " + ag + " registrada nesta worktree";
+  return btn;
+}
+
 function paintAgents() {
   const live = agentsState.agents.filter((a) => a.alive);
   const c = agentsState.counts || {};
@@ -1672,6 +1695,7 @@ function paintAgents() {
       .closest(".worktree-card")
       ?.classList.toggle("agent-waiting", mine.some((a) => a.state === "waiting"));
   }
+  for (const btn of document.querySelectorAll("[data-resume-agent]")) paintResume(btn);
 }
 
 function notifyTransitions() {

@@ -40,6 +40,9 @@ type AgentsState struct {
 	Agents []AgentInfo `json:"agents"`
 	Counts AgentCounts `json:"counts"`
 	Dir    string      `json:"dir"`
+	// Resumable: por worktree (path), agentes com sessão para retomar. O
+	// card usa para ligar o "↺ retomar" sem redesenhar o menu.
+	Resumable map[string][]string `json:"resumable"`
 }
 
 // wtEntry é o mínimo de uma worktree para ligar cwd → card.
@@ -249,7 +252,10 @@ func (s *server) agentsDir() string { return filepath.Join(s.cfg.StateDir, "agen
 
 func (s *server) agentsState(ctx context.Context) AgentsState {
 	dir := s.agentsDir()
-	return collectAgents(s.wts.get(ctx, s.cfg), loadAgentRecords(dir, time.Now()), scanProcAgents(), dir)
+	entries, recs := s.wts.get(ctx, s.cfg), loadAgentRecords(dir, time.Now())
+	st := collectAgents(entries, recs, scanProcAgents(), dir)
+	st.Resumable = resumableAgents(entries, recs, s.cfg.Agents)
+	return st
 }
 
 func (s *server) handleAgents(w http.ResponseWriter, r *http.Request) {

@@ -126,23 +126,22 @@ func TestLoadConfigKeepsExplicitValues(t *testing.T) {
 	}
 }
 
-// applyDefaults roda antes do validate: um valor negativo em snapshots cai no
-// padrão em vez de virar erro (a checagem de negativos do validate só pega
-// configs montados à mão, sem applyDefaults).
-func TestLoadConfigNegativeSnapshotFallsBackToDefault(t *testing.T) {
-	p := writeConfig(t, `{"root":"projects","snapshots":{"keep":-1,"maxMB":-5},"repos":[{"key":"a","dir":"a"}]}`)
+// Negativo em snapshots é erro de config: não pode cair no padrão em silêncio.
+func TestLoadConfigRejectsNegativeSnapshot(t *testing.T) {
+	for _, field := range []string{"keep", "maxAgeDays", "preRemoveDays", "maxMB", "fileMaxMB"} {
+		p := writeConfig(t, `{"root":"projects","snapshots":{"`+field+`":-1},"repos":[{"key":"a","dir":"a"}]}`)
+		if _, err := loadConfig(p); err == nil || !strings.Contains(err.Error(), "negativos") {
+			t.Errorf("%s=-1 deveria ser recusado: %v", field, err)
+		}
+	}
+	// Zero (ou ausente) continua caindo no padrão.
+	p := writeConfig(t, `{"root":"projects","snapshots":{"keep":0},"repos":[{"key":"a","dir":"a"}]}`)
 	cfg, err := loadConfig(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := defaultSnapshotConfig()
-	if cfg.Snapshots.Keep != d.Keep || cfg.Snapshots.MaxMB != d.MaxMB {
-		t.Fatalf("snapshots = %+v, queria padrão %+v", cfg.Snapshots, d)
-	}
-	bad := &Config{Root: t.TempDir(), Listen: "127.0.0.1:1", FolderPattern: "{feature}", BranchPattern: "{feature}",
-		Repos: []RepoConfig{{Key: "a", Dir: "a"}}, Snapshots: &SnapshotConfig{Keep: -1}}
-	if err := bad.validate(); err == nil || !strings.Contains(err.Error(), "negativos") {
-		t.Fatalf("validate sem applyDefaults deveria recusar negativo: %v", err)
+	if d := defaultSnapshotConfig(); cfg.Snapshots.Keep != d.Keep {
+		t.Fatalf("keep 0 = %d, queria o padrão %d", cfg.Snapshots.Keep, d.Keep)
 	}
 }
 

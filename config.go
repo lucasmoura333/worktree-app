@@ -184,21 +184,21 @@ func applyDefaults(c *Config) {
 	} else {
 		// Valores ausentes/zero no config caem no padrão; o zero explícito só
 		// existe para testes de falha (snapshotCfg respeita quem não passou
-		// por applyDefaults).
+		// por applyDefaults). Negativo fica como está para o validate recusar.
 		d := defaultSnapshotConfig()
-		if c.Snapshots.Keep <= 0 {
+		if c.Snapshots.Keep == 0 {
 			c.Snapshots.Keep = d.Keep
 		}
-		if c.Snapshots.MaxAgeDays <= 0 {
+		if c.Snapshots.MaxAgeDays == 0 {
 			c.Snapshots.MaxAgeDays = d.MaxAgeDays
 		}
-		if c.Snapshots.PreRemoveDays <= 0 {
+		if c.Snapshots.PreRemoveDays == 0 {
 			c.Snapshots.PreRemoveDays = d.PreRemoveDays
 		}
-		if c.Snapshots.MaxMB <= 0 {
+		if c.Snapshots.MaxMB == 0 {
 			c.Snapshots.MaxMB = d.MaxMB
 		}
-		if c.Snapshots.FileMaxMB <= 0 {
+		if c.Snapshots.FileMaxMB == 0 {
 			c.Snapshots.FileMaxMB = d.FileMaxMB
 		}
 	}

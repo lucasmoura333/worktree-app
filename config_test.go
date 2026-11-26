@@ -14,7 +14,7 @@ import (
 // "projects" (o root) ao lado, e devolve o caminho do arquivo.
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := realPath(t.TempDir())
 	if err := os.MkdirAll(filepath.Join(dir, "projects"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestLoadConfigJSONCAndDefaults(t *testing.T) {
 }
 
 func TestLoadConfigKeepsExplicitValues(t *testing.T) {
-	root := t.TempDir()
+	root := realPath(t.TempDir())
 	p := writeConfig(t, `{
   "root": `+jsonQuote(root)+`,
   "listen": "localhost:7801",
@@ -127,6 +127,22 @@ func TestLoadConfigKeepsExplicitValues(t *testing.T) {
 }
 
 // Negativo em snapshots é erro de config: não pode cair no padrão em silêncio.
+// O git devolve caminhos resolvidos; um root por symlink precisa bater com eles.
+func TestLoadConfigResolvesRootLink(t *testing.T) {
+	p := writeConfig(t, `{"root":"atalho","repos":[{"key":"a","dir":"a"}]}`)
+	dir := filepath.Dir(p)
+	if err := os.Symlink(filepath.Join(dir, "projects"), filepath.Join(dir, "atalho")); err != nil {
+		t.Skip("sem symlink:", err)
+	}
+	cfg, err := loadConfig(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "projects"); cfg.Root != want {
+		t.Fatalf("root = %q, quer %q", cfg.Root, want)
+	}
+}
+
 func TestLoadConfigRejectsNegativeSnapshot(t *testing.T) {
 	for _, field := range []string{"keep", "maxAgeDays", "preRemoveDays", "maxMB", "fileMaxMB"} {
 		p := writeConfig(t, `{"root":"projects","snapshots":{"`+field+`":-1},"repos":[{"key":"a","dir":"a"}]}`)

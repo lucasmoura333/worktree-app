@@ -21,6 +21,15 @@ func isDir(p string) bool {
 // isLink reconhece symlinks e junctions (os.Readlink lê os dois no Windows).
 func isLink(p string) bool { _, err := os.Readlink(p); return err == nil }
 
+// realPath resolve symlinks (e, no Windows, nomes curtos como LUCAS~1) para
+// bater com o caminho que o git devolve; se não der, fica só limpo.
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
 func samePath(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if runtime.GOOS == "windows" {

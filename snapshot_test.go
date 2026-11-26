@@ -213,6 +213,167 @@ func TestSnapshotBundlesUnpushed(t *testing.T) {
 	}
 }
 
+// Snapshot novo grava sha256 de cada arquivo de dados e não deixa .tmp-*.
+func TestSnapshotSealsHashesAtomically(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+	wt := createForSnapshot(t, cfg, "selado")
+	write(t, filepath.Join(wt.Path, "yarn.lock"), "lock-alterado\n")
+	write(t, filepath.Join(wt.Path, "novo.txt"), "novo\n")
+
+	meta, err := createSnapshot(ctx, cfg, &cfg.Repos[0], wt, "manual", "", &memLog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"changes.patch", "untracked.tar"} {
+		if len(meta.SHA256[name]) != 64 {
+			t.Fatalf("sha256 de %s ausente: %+v", name, meta.SHA256)
+		}
+	}
+	onDisk, err := readSnapshotMeta(meta.Dir)
+	if err != nil || onDisk.SHA256["untracked.tar"] != meta.SHA256["untracked.tar"] {
+		t.Fatalf("meta.json sem o hash: %+v %v", onDisk.SHA256, err)
+	}
+	ents, _ := os.ReadDir(filepath.Dir(meta.Dir))
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), snapshotTmpPrefix) {
+			t.Fatalf("sobrou pasta temporária: %s", e.Name())
+		}
+	}
+}
+
+// Arquivo do snapshot alterado depois de gravado: a restauração recusa antes
+// de escrever qualquer coisa.
+func TestSnapshotRestoreRejectsTampered(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+	wt := createForSnapshot(t, cfg, "adulterado")
+	write(t, filepath.Join(wt.Path, "novo.txt"), "novo\n")
+	meta, err := createSnapshot(ctx, cfg, &cfg.Repos[0], wt, "manual", "", &memLog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(wt.Path, "novo.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	tarPath := filepath.Join(meta.Dir, "untracked.tar")
+	b, err := os.ReadFile(tarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b[len(b)/3] ^= 0xff
+	if err := os.WriteFile(tarPath, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = restoreSnapshot(ctx, cfg, wt.Path, meta.Dir, &memLog{})
+	if err == nil || !strings.Contains(err.Error(), "corrompido") {
+		t.Fatalf("deveria recusar tar adulterado: %v", err)
+	}
+	if exists(filepath.Join(wt.Path, "novo.txt")) {
+		t.Fatal("restauração escreveu apesar do hash errado")
+	}
+
+	// Arquivo de dados que sumiu também recusa.
+	if err := os.Remove(tarPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreSnapshot(ctx, cfg, wt.Path, meta.Dir, &memLog{}); err == nil || !strings.Contains(err.Error(), "sumiu") {
+		t.Fatalf("deveria recusar tar ausente: %v", err)
+	}
+}
+
+// Extração que falha no meio (pasta sem escrita) é desfeita: a worktree volta
+// limpa e a restauração pode ser repetida depois.
+func TestSnapshotRestoreRollsBackPartialExtract(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("depende de permissão de pasta Unix sem root")
+	}
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+	wt := createForSnapshot(t, cfg, "parcial")
+	write(t, filepath.Join(wt.Path, "yarn.lock"), "lock-alterado\n")
+	write(t, filepath.Join(wt.Path, "a.txt"), "a\n")
+	write(t, filepath.Join(wt.Path, "ro/b.txt"), "b\n")
+	meta, err := createSnapshot(ctx, cfg, &cfg.Repos[0], wt, "manual", "", &memLog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, wt.Path, "git", "checkout", "--", "yarn.lock")
+	for _, n := range []string{"a.txt", "ro/b.txt"} {
+		if err := os.Remove(filepath.Join(wt.Path, n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ro/ fica vazia (o git não a vê) e sem escrita: a.txt extrai, ro/b.txt falha.
+	ro := filepath.Join(wt.Path, "ro")
+	if err := os.Chmod(ro, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(ro, 0o755)
+
+	lg := &memLog{}
+	err = restoreSnapshot(ctx, cfg, wt.Path, meta.Dir, lg)
+	if err == nil || !strings.Contains(err.Error(), "nada ficou aplicado") {
+		t.Fatalf("restauração deveria falhar e desfazer: %v\n%s", err, lg)
+	}
+	if exists(filepath.Join(wt.Path, "a.txt")) {
+		t.Fatal("a.txt extraído não foi desfeito")
+	}
+	if got := read(t, filepath.Join(wt.Path, "yarn.lock")); got == "lock-alterado\n" {
+		t.Fatal("patch foi aplicado apesar da falha na extração")
+	}
+	if st, err := worktreeStatus(ctx, wt.Path); err != nil || st.Dirty != 0 {
+		t.Fatalf("worktree não voltou limpa: %+v %v", st, err)
+	}
+
+	// Corrigida a permissão, a mesma restauração funciona.
+	if err := os.Chmod(ro, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreSnapshot(ctx, cfg, wt.Path, meta.Dir, &memLog{}); err != nil {
+		t.Fatalf("nova tentativa: %v", err)
+	}
+	if read(t, filepath.Join(wt.Path, "ro/b.txt")) != "b\n" || read(t, filepath.Join(wt.Path, "yarn.lock")) != "lock-alterado\n" {
+		t.Fatal("nova tentativa não restaurou tudo")
+	}
+}
+
+// Sobra .tmp-* de criação interrompida sai no prune; a recente fica.
+func TestSnapshotPrunesStaleTmp(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+	wt := createForSnapshot(t, cfg, "sobras")
+	base := snapshotRunDir(cfg, "app", wt.Folder)
+	old := filepath.Join(base, snapshotTmpPrefix+"velha")
+	fresh := filepath.Join(base, snapshotTmpPrefix+"nova")
+	for _, d := range []string{old, fresh} {
+		write(t, filepath.Join(d, "untracked.tar"), "pela metade")
+	}
+	past := time.Now().Add(-2 * snapshotTmpMaxAge)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(wt.Path, "novo.txt"), "x\n")
+	if _, err := createSnapshot(ctx, cfg, &cfg.Repos[0], wt, "manual", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if exists(old) {
+		t.Fatal("sobra antiga não foi limpa")
+	}
+	if !exists(fresh) {
+		t.Fatal("pasta temporária recente não deveria sair")
+	}
+	if n := len(listSnapshots(cfg, "app", wt.Folder)); n != 1 {
+		t.Fatalf("listagem deveria ignorar .tmp-*: %d", n)
+	}
+}
+
 func TestRemoveForceSnapshotsAndAborts(t *testing.T) {
 	cfg := fixture(t)
 	cfg.StateDir = t.TempDir()

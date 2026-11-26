@@ -6,11 +6,13 @@ package main
 //
 // O snapshot vive em stateDir/snapshots/<repo>/<pasta>/<data-hora>/ e nunca
 // toca o repositório nem o Vault. Restaurar exige worktree limpa: primeiro
-// valida patch e tar, depois aplica.
+// valida hash, patch e tar, depois aplica.
 
 import (
 	"archive/tar"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,6 +59,8 @@ type SnapshotMeta struct {
 	HasPatch      bool            `json:"hasPatch,omitempty"`
 	HasUntracked  bool            `json:"hasUntracked,omitempty"`
 	HasBundle     bool            `json:"hasBundle,omitempty"`
+	// SHA256 por arquivo de dados; snapshots antigos não têm.
+	SHA256 map[string]string `json:"sha256,omitempty"`
 	// Dir só é preenchido na listagem (caminho absoluto da pasta).
 	Dir string `json:"dir,omitempty"`
 }
@@ -282,11 +286,17 @@ func createSnapshot(ctx context.Context, cfg *Config, r *RepoConfig, wt Worktree
 
 	now := snapshotNow()
 	base := snapshotRunDir(cfg, r.Key, folder)
-	dir := filepath.Join(base, now.Format(snapshotTimeLayout))
-	for i := 2; exists(dir); i++ {
-		dir = filepath.Join(base, fmt.Sprintf("%s-%d", now.Format(snapshotTimeLayout), i))
+	final := filepath.Join(base, now.Format(snapshotTimeLayout))
+	for i := 2; exists(final); i++ {
+		final = filepath.Join(base, fmt.Sprintf("%s-%d", now.Format(snapshotTimeLayout), i))
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return meta, err
+	}
+	// Grava em .tmp-* (a listagem ignora) e renomeia no fim; sobra de criação
+	// interrompida sai no prune.
+	dir, err := os.MkdirTemp(base, snapshotTmpPrefix)
+	if err != nil {
 		return meta, err
 	}
 	cleanup := func(err error) (SnapshotMeta, error) {
@@ -353,13 +363,20 @@ func createSnapshot(ctx context.Context, cfg *Config, r *RepoConfig, wt Worktree
 		}
 	}
 
+	if meta.SHA256, err = sealSnapshotFiles(dir); err != nil {
+		return cleanup(err)
+	}
 	b, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return cleanup(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "meta.json"), append(b, '\n'), 0o600); err != nil {
+	if err := writeFileSync(filepath.Join(dir, "meta.json"), append(b, '\n'), 0o600); err != nil {
 		return cleanup(err)
 	}
+	if err := os.Rename(dir, final); err != nil {
+		return cleanup(err)
+	}
+	dir = final
 	meta.Dir = dir
 
 	pruneSnapshots(cfg, r.Key, folder)
@@ -452,6 +469,118 @@ func snapshotAgents(ctx context.Context, cfg *Config, wtPath string) []SnapshotA
 	return out
 }
 
+const (
+	snapshotTmpPrefix = ".tmp-"
+	snapshotTmpMaxAge = time.Hour
+)
+
+var snapshotDataFiles = []string{"changes.patch", "untracked.tar", "commits.bundle"}
+
+// hashFileSync também dá fsync: o meta.json só é gravado depois.
+func hashFileSync(p string) (string, error) {
+	f, err := os.OpenFile(p, os.O_RDWR, 0)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	if err := f.Sync(); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func sealSnapshotFiles(dir string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, name := range snapshotDataFiles {
+		p := filepath.Join(dir, name)
+		if !exists(p) {
+			continue
+		}
+		sum, err := hashFileSync(p)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = sum
+	}
+	return out, nil
+}
+
+func writeFileSync(p string, b []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Sync()
+	}
+	return errors.Join(err, f.Close())
+}
+
+// verifySnapshotFiles devolve checked=false para snapshot sem SHA256.
+func verifySnapshotFiles(dir string, meta SnapshotMeta) (checked bool, err error) {
+	if len(meta.SHA256) == 0 {
+		return false, nil
+	}
+	known := map[string]bool{}
+	for _, name := range snapshotDataFiles {
+		known[name] = true
+	}
+	for name := range meta.SHA256 {
+		if !known[name] {
+			return true, fmt.Errorf("meta.json cita arquivo desconhecido: %q", name)
+		}
+	}
+	for _, name := range snapshotDataFiles {
+		p := filepath.Join(dir, name)
+		want, listed := meta.SHA256[name]
+		switch {
+		case !listed && exists(p):
+			return true, fmt.Errorf("%s não consta no meta.json", name)
+		case listed && !exists(p):
+			return true, fmt.Errorf("%s sumiu do snapshot", name)
+		case !listed:
+			continue
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return true, err
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, f)
+		_ = f.Close()
+		if err != nil {
+			return true, err
+		}
+		if got := hex.EncodeToString(h.Sum(nil)); got != want {
+			return true, fmt.Errorf("%s alterado ou corrompido (sha256 %s…, esperado %s…)", name, got[:12], want[:12])
+		}
+	}
+	return true, nil
+}
+
+func pruneSnapshotTmp(cfg *Config, base string, now time.Time) {
+	ents, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), snapshotTmpPrefix) {
+			continue
+		}
+		dir := filepath.Join(base, e.Name())
+		info, err := e.Info()
+		if err != nil || isLink(dir) || !within(snapshotsRoot(cfg), dir) || now.Sub(info.ModTime()) < snapshotTmpMaxAge {
+			continue
+		}
+		_ = os.RemoveAll(dir)
+	}
+}
+
 func readSnapshotMeta(dir string) (SnapshotMeta, error) {
 	var m SnapshotMeta
 	b, err := os.ReadFile(filepath.Join(dir, "meta.json"))
@@ -539,6 +668,7 @@ func pruneSnapshots(cfg *Config, repo, folder string) {
 	if !within(snapshotsRoot(cfg), base) || isLink(base) {
 		return
 	}
+	pruneSnapshotTmp(cfg, base, time.Now()) // mtime é relógio real
 	ents, err := os.ReadDir(base)
 	if err != nil {
 		return
@@ -641,33 +771,47 @@ func validateTar(tarPath, root string) error {
 	}
 }
 
-func extractTar(tarPath, root string) error {
+// extractTar devolve o que criou (também quando falha no meio), em ordem.
+func extractTar(tarPath, root string) (created []string, err error) {
 	f, err := os.Open(tarPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
+	mkdirs := func(dir string) error {
+		var missing []string
+		for p := dir; within(root, p) && !samePath(root, p) && !exists(p); p = filepath.Dir(p) {
+			missing = append(missing, p)
+		}
+		for i := len(missing) - 1; i >= 0; i-- {
+			if err := os.Mkdir(missing[i], 0o755); err != nil {
+				return err
+			}
+			created = append(created, missing[i])
+		}
+		return nil
+	}
 	tr := tar.NewReader(f)
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return created, nil
 		}
 		if err != nil {
-			return err
+			return created, err
 		}
 		target, err := checkTarPath(root, h.Name)
 		if err != nil {
-			return err
+			return created, err
 		}
 		if h.Typeflag == tar.TypeDir {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
+			if err := mkdirs(target); err != nil {
+				return created, err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+		if err := mkdirs(filepath.Dir(target)); err != nil {
+			return created, err
 		}
 		mode := os.FileMode(h.Mode).Perm() & 0o777
 		if mode == 0 {
@@ -675,16 +819,30 @@ func extractTar(tarPath, root string) error {
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 		if err != nil {
-			return err
+			return created, err
 		}
+		// Com O_EXCL o arquivo é nosso; entra antes da cópia para sair junto.
+		created = append(created, target)
 		_, cerr := io.Copy(out, tr)
-		cerr = errors.Join(cerr, out.Close())
-		if cerr != nil {
-			return cerr
+		if cerr = errors.Join(cerr, out.Close()); cerr != nil {
+			return created, cerr
 		}
 	}
 }
 
+// undoCreated desfaz extractTar; pasta só sai se estiver vazia.
+func undoCreated(created []string) error {
+	var errs []error
+	for i := len(created) - 1; i >= 0; i-- {
+		if err := os.Remove(created[i]); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// O patch vai por último porque git apply (sem --3way) é atômico; se algo
+// falha, o que foi extraído é desfeito e dá para tentar de novo.
 func restoreSnapshot(ctx context.Context, cfg *Config, path, dir string, lg Logger) error {
 	meta, err := readSnapshotMeta(dir)
 	if err != nil {
@@ -692,6 +850,17 @@ func restoreSnapshot(ctx context.Context, cfg *Config, path, dir string, lg Logg
 	}
 	if !within(snapshotsRoot(cfg), dir) {
 		return errors.New("snapshot fora da pasta de snapshots")
+	}
+	checked, err := verifySnapshotFiles(dir, meta)
+	if err != nil {
+		return fmt.Errorf("snapshot não confere: %w", err)
+	}
+	if lg != nil {
+		if checked {
+			lg.Log(meta.Repo, "ok", "sha256 conferido")
+		} else {
+			lg.Log(meta.Repo, "warn", "snapshot sem sha256; integridade não conferida")
+		}
 	}
 	st, err := worktreeStatus(ctx, path)
 	if err != nil {
@@ -703,7 +872,7 @@ func restoreSnapshot(ctx context.Context, cfg *Config, path, dir string, lg Logg
 	patchPath := filepath.Join(dir, "changes.patch")
 	tarPath := filepath.Join(dir, "untracked.tar")
 	if exists(patchPath) {
-		if _, err := git(ctx, path, "apply", "--check", patchPath); err != nil {
+		if _, err := git(ctx, path, "apply", "--check", "--index", patchPath); err != nil {
 			return fmt.Errorf("patch não aplica nesta worktree: %w", err)
 		}
 	}
@@ -712,20 +881,32 @@ func restoreSnapshot(ctx context.Context, cfg *Config, path, dir string, lg Logg
 			return err
 		}
 	}
-	if exists(patchPath) {
-		if _, err := git(ctx, path, "apply", "--3way", patchPath); err != nil {
-			return err
+
+	var created []string
+	rollback := func(cause error) error {
+		if uerr := undoCreated(created); uerr != nil {
+			return fmt.Errorf("%w; desfazer falhou: %v", cause, uerr)
 		}
-		if lg != nil {
-			lg.Log(meta.Repo, "ok", "changes.patch aplicado")
+		if lg != nil && len(created) > 0 {
+			lg.Log(meta.Repo, "warn", fmt.Sprintf("restauração desfeita (%d caminhos)", len(created)))
 		}
+		return fmt.Errorf("%w; nada ficou aplicado", cause)
 	}
 	if exists(tarPath) {
-		if err := extractTar(tarPath, path); err != nil {
-			return err
+		created, err = extractTar(tarPath, path)
+		if err != nil {
+			return rollback(fmt.Errorf("extrair untracked.tar: %w", err))
 		}
 		if lg != nil {
 			lg.Log(meta.Repo, "ok", "untracked.tar extraído")
+		}
+	}
+	if exists(patchPath) {
+		if _, err := git(ctx, path, "apply", "--index", patchPath); err != nil {
+			return rollback(fmt.Errorf("aplicar changes.patch: %w", err))
+		}
+		if lg != nil {
+			lg.Log(meta.Repo, "ok", "changes.patch aplicado")
 		}
 	}
 	if exists(filepath.Join(dir, "commits.bundle")) && lg != nil {

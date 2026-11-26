@@ -202,7 +202,7 @@ func applyDefaults(c *Config) {
 			c.Snapshots.FileMaxMB = d.FileMaxMB
 		}
 	}
-	c.Root = filepath.Clean(c.Root)
+	c.Root = realPath(c.Root)
 	if c.Vault != nil {
 		setVaultScope(c.Vault.Scope)
 		c.Vault.Scope = strings.TrimSuffix(docScope, "/")

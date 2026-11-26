@@ -173,13 +173,13 @@ func (u *usageReader) opencodeUsage(ctx context.Context, session string) (AgentU
 }
 
 // claudeUsagePath reproduz o nome que o Claude usa para a pasta do projeto:
-// "/" e "." viram "-" (/home/x/a.b -> -home-x-a-b).
+// separadores, ":" e "." viram "-" (/home/x/a.b -> -home-x-a-b, D:\p -> D--p).
 func claudeUsagePath(cwd, session string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	dir := strings.NewReplacer("/", "-", "\\", "-", ".", "-").Replace(cwd)
+	dir := strings.NewReplacer("/", "-", "\\", "-", ":", "-", ".", "-").Replace(cwd)
 	return filepath.Join(home, ".claude", "projects", dir, session+".jsonl")
 }
 

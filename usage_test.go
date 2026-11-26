@@ -18,6 +18,7 @@ func usageAgent(agent, session, cwd string) AgentInfo {
 func TestUsageClaudeIncrementalAndDedupe(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	cwd := "/p/acme-app/dev.x"
 	dir := filepath.Join(home, ".claude", "projects", "-p-acme-app-dev-x")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -61,6 +62,7 @@ func TestUsageClaudeIncrementalAndDedupe(t *testing.T) {
 func TestUsageCodexCumulative(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	session := "01a0e9be-18d2-7ee3-838c-5eb5a2a34253"
 	dir := filepath.Join(home, ".codex", "sessions", "2026", "11", "25")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -115,10 +117,20 @@ func TestUsageOpencodeViaCLI(t *testing.T) {
 func TestUsageUnknownAgentStaysEmpty(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	ur := &usageReader{}
 	agents := []AgentInfo{usageAgent("agy", "conv1", "/p/acme-app/dev.x")}
 	ur.fill(context.Background(), agents)
 	if agents[0].Usage != nil {
 		t.Fatalf("agy não tem fonte numérica: %+v", agents[0].Usage)
+	}
+}
+
+func TestClaudeUsagePathWindowsDrive(t *testing.T) {
+	t.Setenv("HOME", "/h")
+	t.Setenv("USERPROFILE", `C:\h`)
+	got := claudeUsagePath(`D:\Projects\a.b`, "s1")
+	if want := filepath.Join("projects", "D--Projects-a-b", "s1.jsonl"); !strings.HasSuffix(got, want) {
+		t.Fatalf("%q não termina em %q", got, want)
 	}
 }

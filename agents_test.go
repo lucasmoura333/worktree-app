@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +22,10 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("WT_STATE_DIR", dir)
+	// Git for Windows vem com core.autocrlf=true; os testes comparam bytes.
+	os.Setenv("GIT_CONFIG_COUNT", "1")
+	os.Setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+	os.Setenv("GIT_CONFIG_VALUE_0", "false")
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -64,13 +69,13 @@ func TestHookStatesAndSilence(t *testing.T) {
 	steps := []struct {
 		agent, payload, want string
 	}{
-		{"claude", `{"session_id":"s1","cwd":"` + cwd + `","hook_event_name":"UserPromptSubmit","prompt":"segredo"}`, agentWorking},
-		{"claude", `{"session_id":"s1","cwd":"` + cwd + `","hook_event_name":"Notification","notification_type":"permission_prompt"}`, agentWaiting},
-		{"claude", `{"session_id":"s1","cwd":"` + cwd + `","hook_event_name":"PostToolUse"}`, agentWorking},
-		{"claude", `{"session_id":"s1","cwd":"` + cwd + `","hook_event_name":"Stop"}`, agentDone},
-		{"claude", `{"session_id":"s1","cwd":"` + cwd + `","hook_event_name":"SessionEnd"}`, agentEnded},
-		{"codex", `{"session_id":"c-1","cwd":"` + cwd + `","hook_event_name":"PermissionRequest","turn_id":"x"}`, agentWaiting},
-		{"opencode", `{"session_id":"ses_abc","cwd":"` + cwd + `","state":"working"}`, agentWorking},
+		{"claude", `{"session_id":"s1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"UserPromptSubmit","prompt":"segredo"}`, agentWorking},
+		{"claude", `{"session_id":"s1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"Notification","notification_type":"permission_prompt"}`, agentWaiting},
+		{"claude", `{"session_id":"s1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"PostToolUse"}`, agentWorking},
+		{"claude", `{"session_id":"s1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"Stop"}`, agentDone},
+		{"claude", `{"session_id":"s1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"SessionEnd"}`, agentEnded},
+		{"codex", `{"session_id":"c-1","cwd":` + jsonQuote(cwd) + `,"hook_event_name":"PermissionRequest","turn_id":"x"}`, agentWaiting},
+		{"opencode", `{"session_id":"ses_abc","cwd":` + jsonQuote(cwd) + `,"state":"working"}`, agentWorking},
 	}
 	for i, s := range steps {
 		hookOut(t, s.agent, s.payload, t0.Add(time.Duration(i)*time.Second))
@@ -87,15 +92,17 @@ func TestHookStatesAndSilence(t *testing.T) {
 	if strings.Contains(string(b), "segredo") {
 		t.Fatal("prompt vazou para o registro")
 	}
-	if fi, _ := os.Stat(filepath.Join(dir, "claude-s1.json")); fi.Mode().Perm() != 0o600 {
-		t.Fatalf("permissão %v", fi.Mode().Perm())
-	}
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
-		t.Fatalf("permissão da pasta %v", fi.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		if fi, _ := os.Stat(filepath.Join(dir, "claude-s1.json")); fi.Mode().Perm() != 0o600 {
+			t.Fatalf("permissão %v", fi.Mode().Perm())
+		}
+		if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+			t.Fatalf("permissão da pasta %v", fi.Mode().Perm())
+		}
 	}
 
 	// Mesmo estado não regrava e mantém o "since".
-	hookOut(t, "codex", `{"session_id":"c-1","cwd":"`+cwd+`","hook_event_name":"PermissionRequest"}`, t0.Add(time.Hour))
+	hookOut(t, "codex", `{"session_id":"c-1","cwd":`+jsonQuote(cwd)+`,"hook_event_name":"PermissionRequest"}`, t0.Add(time.Hour))
 	if r, _ := hookRec(t, dir, "codex", "c-1"); !r.Since.Equal(t0.Add(5 * time.Second)) {
 		t.Fatalf("since mudou: %v", r.Since)
 	}
@@ -130,11 +137,11 @@ func TestAgyHookStateAndReply(t *testing.T) {
 	steps := []struct {
 		payload, wantState, wantOut string
 	}{
-		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"SessionStart","lastUserInput":"segredo"}`, agentWaiting, `{}`},
-		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"PreInvocation"}`, agentWorking, `{}`},
-		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"PostToolUse"}`, agentWorking, `{}`},
-		{`{"conversationId":"agy-1","workspacePaths":["` + cwd + `"],"hookEventName":"PreInvocation"}`, agentWorking, `{}`},
-		{`{"conversationId":"agy-1","cwd":"` + cwd + `","hookEventName":"Stop"}`, agentDone, `{"decision":"allow"}`},
+		{`{"conversationId":"agy-1","cwd":` + jsonQuote(cwd) + `,"hookEventName":"SessionStart","lastUserInput":"segredo"}`, agentWaiting, `{}`},
+		{`{"conversationId":"agy-1","cwd":` + jsonQuote(cwd) + `,"hookEventName":"PreInvocation"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","cwd":` + jsonQuote(cwd) + `,"hookEventName":"PostToolUse"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","workspacePaths":[` + jsonQuote(cwd) + `],"hookEventName":"PreInvocation"}`, agentWorking, `{}`},
+		{`{"conversationId":"agy-1","cwd":` + jsonQuote(cwd) + `,"hookEventName":"Stop"}`, agentDone, `{"decision":"allow"}`},
 	}
 	for i, s := range steps {
 		out := hookStdout(t, "agy", s.payload, t0.Add(time.Duration(i)*time.Second))
@@ -151,7 +158,7 @@ func TestAgyHookStateAndReply(t *testing.T) {
 		t.Fatal("prompt vazou para o registro do agy")
 	}
 	// Mesmo inválido, o hook do agy responde JSON (não deixa o CLI sem resposta).
-	if out := hookStdout(t, "agy", `{"conversationId":"../../x","cwd":"`+cwd+`","hookEventName":"Stop"}`, t0); out != `{"decision":"allow"}` {
+	if out := hookStdout(t, "agy", `{"conversationId":"../../x","cwd":`+jsonQuote(cwd)+`,"hookEventName":"Stop"}`, t0); out != `{"decision":"allow"}` {
 		t.Fatalf("stdout para sessão inválida: %q", out)
 	}
 }
@@ -179,6 +186,9 @@ func TestMatchWorktreeBoundary(t *testing.T) {
 // fakeProc cria /proc/<pid>/{comm,stat,cwd} num diretório temporário.
 func fakeProc(t *testing.T, root string, pid, ppid int, comm, cwd string) {
 	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("varredura de /proc só existe no Linux")
+	}
 	d := filepath.Join(root, strconv.Itoa(pid))
 	write(t, filepath.Join(d, "comm"), comm+"\n")
 	write(t, filepath.Join(d, "stat"), strconv.Itoa(pid)+" ("+comm+") S "+strconv.Itoa(ppid)+" 1 1\n")

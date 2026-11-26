@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -65,6 +66,9 @@ func postTerminal(s *server, body string, xwt bool) *httptest.ResponseRecorder {
 }
 
 func TestTerminalEndpoint(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("o terminal abre aba do WSL; caminho do Windows não passa no argRe")
+	}
 	cfg := fixture(t)
 	cfg.StateDir = t.TempDir()
 	cfg.Distro = "Ubuntu-24.04"
@@ -78,19 +82,19 @@ func TestTerminalEndpoint(t *testing.T) {
 	var launched [][]string
 	s.launch = func(argv []string) error { launched = append(launched, argv); return nil }
 
-	if w := postTerminal(s, `{"path":"`+wt+`"}`, false); w.Code != http.StatusForbidden {
+	if w := postTerminal(s, `{"path":`+jsonQuote(wt)+`}`, false); w.Code != http.StatusForbidden {
 		t.Fatalf("sem X-WT: %d", w.Code)
 	}
-	if w := postTerminal(s, `{"path":"`+cfg.Root+`"}`, true); w.Code != http.StatusBadRequest {
+	if w := postTerminal(s, `{"path":`+jsonQuote(cfg.Root)+`}`, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("root não é worktree: %d", w.Code)
 	}
 	if w := postTerminal(s, `{"path":"`+filepath.Join(wt, "sub")+`"}`, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("subpasta aceita: %d", w.Code)
 	}
-	if w := postTerminal(s, `{"path":"`+wt+`","agent":"vim"}`, true); w.Code != http.StatusBadRequest {
+	if w := postTerminal(s, `{"path":`+jsonQuote(wt)+`,"agent":"vim"}`, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("agente desconhecido: %d", w.Code)
 	}
-	if w := postTerminal(s, `{"path":"`+wt+`","agent":"claude","resume":true}`, true); w.Code != http.StatusBadRequest {
+	if w := postTerminal(s, `{"path":`+jsonQuote(wt)+`,"agent":"claude","resume":true}`, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("retomar sem sessão: %d", w.Code)
 	}
 	if len(launched) != 0 {
@@ -100,7 +104,7 @@ func TestTerminalEndpoint(t *testing.T) {
 		t.Fatalf("retomável sem sessão registrada: %v", r)
 	}
 
-	if w := postTerminal(s, `{"path":"`+wt+`"}`, true); w.Code != http.StatusOK {
+	if w := postTerminal(s, `{"path":`+jsonQuote(wt)+`}`, true); w.Code != http.StatusOK {
 		t.Fatalf("terminal: %d %s", w.Code, w.Body)
 	}
 	got := launched[0]
@@ -115,7 +119,7 @@ func TestTerminalEndpoint(t *testing.T) {
 	if r := getResumable(t, s); !slices.Equal(r[wt], []string{"claude"}) || len(r) != 1 {
 		t.Fatalf("retomável com sessão registrada: %v", r)
 	}
-	if w := postTerminal(s, `{"path":"`+wt+`","agent":"claude","resume":true}`, true); w.Code != http.StatusOK {
+	if w := postTerminal(s, `{"path":`+jsonQuote(wt)+`,"agent":"claude","resume":true}`, true); w.Code != http.StatusOK {
 		t.Fatalf("retomar: %d %s", w.Code, w.Body)
 	}
 	got = launched[1]

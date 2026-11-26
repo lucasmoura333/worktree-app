@@ -247,3 +247,62 @@ func TestRemoveForceSnapshotsAndAborts(t *testing.T) {
 		t.Fatalf("erro inesperado: %v", err)
 	}
 }
+
+// Worktree trancada não sai nem com "forçar": o git recusa e o fallback que
+// apaga a pasta direto não pode passar por cima do lock.
+func TestRemoveRefusesLockedWorktree(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+
+	wt := createForSnapshot(t, cfg, "trancada")
+	write(t, filepath.Join(wt.Path, "sujo.txt"), "x\n")
+	if _, err := git(ctx, cfg.mainPath(cfg.repo("app")), "worktree", "lock", "--reason", "pendrive", wt.Path); err != nil {
+		t.Fatal(err)
+	}
+	if f := findFeature(scanState(ctx, cfg), "trancada"); f == nil || !f.Worktrees[0].Locked {
+		t.Fatal("scan não marcou a worktree como trancada")
+	}
+	lg := &memLog{}
+	err := removeFeature(ctx, cfg, &RemoveReq{Feature: "trancada", Force: true, SkipSnapshot: true}, lg)
+	if err == nil || !strings.Contains(err.Error(), "trancada") {
+		t.Fatalf("remoção forçada deveria recusar worktree trancada: %v", err)
+	}
+	if !exists(filepath.Join(wt.Path, "sujo.txt")) {
+		t.Fatal("arquivo da worktree trancada foi apagado")
+	}
+
+	// Lock posto depois do scan: removeWorktree recebe Locked=false, o git
+	// recusa e a pasta precisa continuar lá.
+	stale := wt
+	stale.Locked = false
+	if err := removeWorktree(ctx, cfg, cfg.repo("app"), stale, &RemoveReq{Force: true}, lg); err == nil {
+		t.Fatal("removeWorktree deveria falhar com lock")
+	}
+	if !exists(filepath.Join(wt.Path, "sujo.txt")) {
+		t.Fatal("fallback apagou a pasta de uma worktree trancada")
+	}
+}
+
+// Agente vivo na worktree é risco: sem "forçar", nada sai.
+func TestRemoveLiveAgentIsRisk(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	ctx := context.Background()
+
+	wt := createForSnapshot(t, cfg, "com-agente")
+	live := map[string]int{wt.Path: 1}
+	err := removeFeature(ctx, cfg, &RemoveReq{Feature: "com-agente", Live: live}, &memLog{})
+	if err == nil || !strings.Contains(err.Error(), "nada foi removido") {
+		t.Fatalf("remoção com agente vivo deveria exigir forçar: %v", err)
+	}
+	if !isDir(wt.Path) {
+		t.Fatal("worktree removida com agente vivo")
+	}
+	if err := removeFeature(ctx, cfg, &RemoveReq{Feature: "com-agente", Live: live, Force: true}, &memLog{}); err != nil {
+		t.Fatalf("remoção forçada: %v", err)
+	}
+	if isDir(wt.Path) {
+		t.Fatal("worktree não removida com forçar")
+	}
+}

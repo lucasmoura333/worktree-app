@@ -24,6 +24,7 @@ type WorktreeInfo struct {
 	Head          string      `json:"head"`
 	Detached      bool        `json:"detached"`
 	Prunable      bool        `json:"prunable"`
+	Locked        bool        `json:"locked,omitempty"`
 	Missing       bool        `json:"missing"`
 	Dirty         int         `json:"dirty"`
 	Upstream      string      `json:"upstream"`
@@ -170,7 +171,7 @@ func scanRepo(ctx context.Context, cfg *Config, r *RepoConfig) (RepoState, []Wor
 		folder := filepath.Base(g.Path)
 		wi := WorktreeInfo{
 			Repo: r.Key, RepoDir: r.Dir, Folder: folder, Feature: cfg.featureFromFolder(r, folder),
-			Path: g.Path, Branch: g.Branch, Head: shortHash(g.Head), Detached: g.Detached, Prunable: g.Prunable,
+			Path: g.Path, Branch: g.Branch, Head: shortHash(g.Head), Detached: g.Detached, Prunable: g.Prunable, Locked: g.Locked,
 			MissingFiles: []string{}, MissingDeps: []string{}, LinkedDeps: []string{},
 		}
 		wi.Missing = !isDir(g.Path)

@@ -20,6 +20,8 @@ type RemoveReq struct {
 	Workspace    bool     `json:"workspace"`
 	// SkipSnapshot desmarca "salvar snapshot antes" no diálogo de remoção.
 	SkipSnapshot bool `json:"skipSnapshot,omitempty"`
+	// Live vem do servidor (agentes vivos por worktree), nunca do cliente.
+	Live map[string]int `json:"-"`
 }
 
 func removeFeature(ctx context.Context, cfg *Config, req *RemoveReq, lg Logger) error {
@@ -47,10 +49,22 @@ func removeFeature(ctx context.Context, cfg *Config, req *RemoveReq, lg Logger) 
 		return errors.New("nenhuma worktree selecionada")
 	}
 
+	// Trancada não sai nem com "forçar": o lock foi pedido por alguém.
+	var locked []string
+	for _, wt := range targets {
+		if wt.Locked {
+			locked = append(locked, wt.Folder)
+			lg.Log(wt.Repo, "error", wt.Folder+" está trancada (git worktree lock); destranque com git worktree unlock antes de remover")
+		}
+	}
+	if len(locked) > 0 {
+		return fmt.Errorf("nada foi removido: %s trancada", strings.Join(locked, ", "))
+	}
+
 	// Checa tudo antes de apagar qualquer coisa: ou remove tudo, ou nada.
 	blocked := false
 	for _, wt := range targets {
-		for _, risk := range removalRisks(wt) {
+		for _, risk := range removalRisks(wt, req.Live[wt.Path]) {
 			blocked = true
 			lg.Log(wt.Repo, map[bool]string{true: "warn", false: "error"}[req.Force], risk)
 		}
@@ -94,8 +108,11 @@ func removeFeature(ctx context.Context, cfg *Config, req *RemoveReq, lg Logger) 
 	return err
 }
 
-func removalRisks(wt WorktreeInfo) []string {
+func removalRisks(wt WorktreeInfo, live int) []string {
 	var out []string
+	if live > 0 {
+		out = append(out, fmt.Sprintf("%s tem %d agente(s) rodando", wt.Folder, live))
+	}
 	if wt.Error != "" {
 		out = append(out, "status indisponível: "+wt.Error)
 	}
@@ -133,6 +150,10 @@ func removeWorktree(ctx context.Context, cfg *Config, r *RepoConfig, wt Worktree
 	args = append(args, wt.Path)
 	lg.Log(r.Key, "info", "removendo "+relSlash(cfg.Root, wt.Path)+"…")
 	if _, err := git(ctx, main, args...); err != nil {
+		// Lock (mesmo um posto depois do scan): nunca apagar a pasta por fora.
+		if wt.Locked || strings.Contains(err.Error(), "locked working tree") {
+			return err
+		}
 		if isDir(wt.Path) {
 			// O git falha em caminhos longos do node_modules; se a worktree segue
 			// limpa (ou foi forçado), apagar a pasta direto é seguro.

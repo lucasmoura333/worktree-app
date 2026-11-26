@@ -308,6 +308,7 @@ func (s *server) opRemove(ctx context.Context, r *http.Request, lg Logger) error
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
+	req.Live = s.liveByPath(ctx)
 	return removeFeature(ctx, s.cfg, &req, lg)
 }
 

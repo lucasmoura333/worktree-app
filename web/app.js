@@ -989,7 +989,8 @@ async function openPath(path, how) {
 
 function openRemove(f) {
   const dlg = $("#dlg");
-  const risky = (wt) => wt.dirty > 0 || wt.unpushed !== 0 || !!wt.error;
+  const risky = (wt) =>
+    wt.dirty > 0 || wt.unpushed !== 0 || !!wt.error || liveCount(wt.path) > 0;
   const btn = h(
     "button",
     { class: "danger solid", type: "button" },
@@ -1009,6 +1010,7 @@ function openRemove(f) {
     btn.disabled =
       state.demo ||
       !chosen.length ||
+      chosen.some((c) => c.wt.locked) ||
       (chosen.some((c) => risky(c.wt)) && !force.checked);
     forceBranch.disabled = !delBranch.checked;
     if (!delBranch.checked) forceBranch.checked = false;
@@ -1031,11 +1033,17 @@ function openRemove(f) {
           h("strong", {}, wt.repoDir),
           h("span", { class: "mono" }, wt.folder),
         ),
-        risky(wt)
+        risky(wt) || wt.locked
           ? h(
               "div",
               { class: "err" },
               [
+                wt.locked
+                  ? "trancada (git worktree unlock antes)"
+                  : null,
+                liveCount(wt.path) > 0
+                  ? plural(liveCount(wt.path), "agente rodando", "agentes rodando")
+                  : null,
                 wt.error ? "status indisponível" : null,
                 wt.dirty > 0
                   ? plural(

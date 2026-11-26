@@ -269,6 +269,12 @@ func (s *server) agentsState(ctx context.Context) AgentsState {
 	return st
 }
 
+// liveByPath é o agentsState sem consumo (que pode chamar CLIs externas).
+func (s *server) liveByPath(ctx context.Context) map[string]int {
+	dir := s.agentsDir()
+	return collectAgents(s.wts.get(ctx, s.cfg), loadAgentRecords(dir, time.Now()), scanProcAgents(), dir).LiveByPath
+}
+
 func (s *server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.agentsState(r.Context()))
 }

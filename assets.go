@@ -101,7 +101,7 @@ func (s *server) resolveAsset(docRel, link string) (string, assetInfo, error) {
 		return "", info, errAssetTarget
 	}
 	decoded, err := url.PathUnescape(raw)
-	if err != nil || strings.Contains(decoded, ":") {
+	if err != nil || strings.ContainsAny(decoded, ":\\\x00") {
 		return "", info, errAssetTarget
 	}
 

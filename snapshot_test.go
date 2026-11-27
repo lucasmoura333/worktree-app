@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func createForSnapshot(t *testing.T, cfg *Config, feature string) WorktreeInfo {
@@ -466,4 +467,91 @@ func TestRemoveLiveAgentIsRisk(t *testing.T) {
 	if isDir(wt.Path) {
 		t.Fatal("worktree não removida com forçar")
 	}
+}
+
+// looksLikeDotGit: nomes que o git ou o NTFS tratam como ".git".
+func looksLikeDotGit(seg string) bool {
+	for len(seg) > 0 && (seg[len(seg)-1] == '.' || seg[len(seg)-1] == ' ') {
+		seg = seg[:len(seg)-1]
+	}
+	l := strings.ToLower(seg)
+	return l == ".git" || l == "git~1"
+}
+
+func FuzzCheckTarPath(f *testing.F) {
+	for _, s := range []string{"a.txt", "src/a.go", "./a", "./.git/config", ".git", ".git/hooks/x",
+		"sub/.git/config", ".GIT/config", ".git./config", ".git /x", "git~1/config", "..", "../x",
+		"a/../../x", "a/..", "/etc/passwd", "a//b", `a\..\..\x`, "C:/x", "", ".", "./", "a/./b"} {
+		f.Add(s)
+	}
+	root := f.TempDir()
+	f.Fuzz(func(t *testing.T, name string) {
+		if !utf8.ValidString(name) {
+			return
+		}
+		target, err := checkTarPath(root, name)
+		if err != nil {
+			return
+		}
+		if !within(root, target) || samePath(root, target) {
+			t.Fatalf("%q aceito, mas %s sai da worktree", name, target)
+		}
+		rel, err := filepath.Rel(root, target)
+		if err != nil {
+			t.Fatalf("%q: %v", name, err)
+		}
+		for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+			if looksLikeDotGit(seg) {
+				t.Fatalf("%q aceito, mas escreve em .git (%s)", name, rel)
+			}
+		}
+	})
+}
+
+func FuzzSafeSnapshotSeg(f *testing.F) {
+	for _, s := range []string{"gdpro-app", "gdpro-app-bdgd", "", ".", "..", "...", "a.", ".a", "a/b",
+		`a\b`, "../x", "-", "--a--", "ação", "a\x00b", "C:", "a. "} {
+		f.Add(s)
+	}
+	base := f.TempDir()
+	f.Fuzz(func(t *testing.T, s string) {
+		out := safeSnapshotSeg(s)
+		if out == "" || strings.HasPrefix(out, ".") || strings.HasSuffix(out, ".") {
+			t.Fatalf("%q -> %q", s, out)
+		}
+		for _, r := range out {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+				t.Fatalf("%q -> %q: caractere %q", s, out, r)
+			}
+		}
+		if again := safeSnapshotSeg(out); again != out {
+			t.Fatalf("%q -> %q -> %q", s, out, again)
+		}
+		if p := filepath.Join(base, out); filepath.Dir(p) != filepath.Clean(base) {
+			t.Fatalf("%q -> %q não fica um nível abaixo de %s", s, out, base)
+		}
+	})
+}
+
+func FuzzWithin(f *testing.F) {
+	for _, p := range [][2]string{{"a", "a/b"}, {"a", "a"}, {"a", "ab"}, {"a", "a/../b"}, {"a", ".."},
+		{"a/b", "a"}, {"a", "a/..b"}, {"a", "a/./b"}, {"", "x"}, {"a", "../../../.."}} {
+		f.Add(p[0], p[1])
+	}
+	base := f.TempDir()
+	f.Fuzz(func(t *testing.T, a, b string) {
+		if strings.ContainsAny(a+b, ":\x00") {
+			return
+		}
+		root, p := filepath.Join(base, a), filepath.Join(base, b)
+		k, q := pathKey(root), pathKey(p)
+		prefix := k
+		if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+			prefix += string(filepath.Separator)
+		}
+		want := q == k || strings.HasPrefix(q, prefix)
+		if got := within(root, p); got != want {
+			t.Fatalf("within(%q, %q) = %v, quer %v", root, p, got, want)
+		}
+	})
 }

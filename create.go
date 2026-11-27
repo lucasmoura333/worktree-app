@@ -54,7 +54,8 @@ type Plan struct {
 var featureRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func validFeature(name string) error {
-	if !featureRe.MatchString(name) || strings.Contains(name, "..") || strings.HasSuffix(name, ".") {
+	if !featureRe.MatchString(name) || strings.Contains(name, "..") || strings.HasSuffix(name, ".") ||
+		strings.HasSuffix(strings.ToLower(name), ".lock") {
 		return errors.New("nome inválido: use letras, números, '.', '_' ou '-' (até 64)")
 	}
 	return nil
@@ -62,7 +63,15 @@ func validFeature(name string) error {
 
 // validRef barra o que o git leria como opção ou que quebraria a linha de comando.
 func validRef(s string) bool {
-	return s != "" && !strings.HasPrefix(s, "-") && !strings.ContainsAny(s, " \t\r\n~^:?*[\\")
+	if s == "" || strings.HasPrefix(s, "-") || strings.ContainsAny(s, " ~^:?*[\\") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func buildPlan(ctx context.Context, cfg *Config, req *CreateReq, ports *portAllocator, reserve bool) *Plan {
@@ -142,6 +151,8 @@ func planRepo(ctx context.Context, cfg *Config, r *RepoConfig, feature string, r
 		}
 		it.Branch, it.StartPoint, it.NewBranch = cfg.branchName(feature, now), base, true
 		switch {
+		case !branchRefOK(ctx, main, it.Branch):
+			problem("a branch %s não é um nome válido para o git; mude a feature", it.Branch)
 		case !validRef(base):
 			problem("origem inválida")
 		case !refExists(ctx, main, base+"^{commit}"):

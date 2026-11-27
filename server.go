@@ -249,21 +249,25 @@ func (s *server) stream(fn opFunc) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		fl, _ := w.(http.Flusher)
 		lg := &streamLog{w: w, fl: fl}
+		start, req := time.Now(), opRequestBody(r)
+		trail := &opTrail{next: lg}
 		ctx := context.WithoutCancel(r.Context())
 		before := scanState(ctx, s.cfg)
 		s.syncVault(before)
+		var err error
 		// A removal must not lose its last SHA if the Vault cannot retain it.
 		if r.URL.Path == "/api/remove" && before.VaultError != "" {
-			lg.done(fmt.Errorf("Vault: %s; remoção cancelada", before.VaultError))
-			return
+			err = fmt.Errorf("Vault: %s; remoção cancelada", before.VaultError)
+		} else {
+			err = fn(ctx, r, trail)
+			s.wts.invalidate()
+			after := scanState(ctx, s.cfg)
+			s.syncVault(after)
+			if after.VaultError != "" {
+				trail.Log("", "warn", "Vault: "+after.VaultError)
+			}
 		}
-		err := fn(ctx, r, lg)
-		s.wts.invalidate()
-		after := scanState(ctx, s.cfg)
-		s.syncVault(after)
-		if after.VaultError != "" {
-			lg.Log("", "warn", "Vault: "+after.VaultError)
-		}
+		s.recordOp(r.URL.Path, start, req, trail, err, lg)
 		lg.done(err)
 	}
 }

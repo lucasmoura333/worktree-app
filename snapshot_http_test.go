@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -203,5 +204,86 @@ func TestSnapshotHTTPRejectsBadInput(t *testing.T) {
 	}
 	if n := len(listSnapshotsHTTP(t, s, url.Values{})); n != 0 {
 		t.Fatalf("nenhum snapshot deveria existir, há %d", n)
+	}
+}
+
+func readOps(t *testing.T, cfg *Config) []opRecord {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(cfg.StateDir, opsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []opRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var rec opRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("linha inválida %q: %v", line, err)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func TestOpsHistoryRecordsEachOperation(t *testing.T) {
+	cfg := fixture(t)
+	cfg.StateDir = t.TempDir()
+	wt := createForSnapshot(t, cfg, "opslog")
+	s := newServer(cfg)
+
+	if ok, errs := ndjsonDone(t, apiCall(t, s, http.MethodPost, "/api/snapshot",
+		jsonBody(t, map[string]string{"repo": "app", "path": wt.Path, "note": "hist"}))); !ok {
+		t.Fatalf("snapshot falhou: %v", errs)
+	}
+	if ok, _ := ndjsonDone(t, apiCall(t, s, http.MethodPost, "/api/snapshot/restore",
+		jsonBody(t, map[string]string{"repo": "app", "path": wt.Path, "snapshot": "nao-existe"}))); ok {
+		t.Fatal("restore de snapshot inexistente deveria falhar")
+	}
+
+	ops := readOps(t, cfg)
+	if len(ops) != 2 {
+		t.Fatalf("esperava 2 operações, veio %d: %+v", len(ops), ops)
+	}
+	snap, rest := ops[0], ops[1]
+	if snap.Op != "snapshot" || !snap.OK || snap.Error != "" || snap.ID == "" || snap.Start.IsZero() {
+		t.Fatalf("registro do snapshot: %+v", snap)
+	}
+	var req map[string]string
+	if err := json.Unmarshal(snap.Req, &req); err != nil || req["path"] != wt.Path || req["note"] != "hist" {
+		t.Fatalf("pedido não guardado: %s (%v)", snap.Req, err)
+	}
+	if len(snap.Log) == 0 {
+		t.Fatal("snapshot sem eventos no histórico")
+	}
+	if rest.Op != "snapshot/restore" || rest.OK || rest.Error == "" || rest.ID == snap.ID {
+		t.Fatalf("registro do restore: %+v", rest)
+	}
+}
+
+func TestOpsHistoryRotates(t *testing.T) {
+	cfg := &Config{StateDir: t.TempDir()}
+	p := filepath.Join(cfg.StateDir, opsFile)
+	write(t, p, strings.Repeat("x", opsMaxBytes+1))
+	if err := appendOp(cfg, opRecord{ID: "a", Op: "fetch", OK: true}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(p + ".1"); err != nil || st.Size() <= opsMaxBytes {
+		t.Fatalf("arquivo antigo não foi para .1: %v", err)
+	}
+	if ops := readOps(t, cfg); len(ops) != 1 || ops[0].ID != "a" {
+		t.Fatalf("arquivo novo: %+v", ops)
+	}
+}
+
+func TestOpRequestBodyKeepsBodyForHandler(t *testing.T) {
+	big := `{"note":"` + strings.Repeat("a", opsMaxReq) + `"}`
+	for body, keep := range map[string]bool{`{"repo": "app"}`: true, "não é json": false, big: false} {
+		r := httptest.NewRequest(http.MethodPost, "/api/fetch", strings.NewReader(body))
+		got := opRequestBody(r)
+		if (got != nil) != keep {
+			t.Errorf("%.20q: guardou=%v, quer %v", body, got != nil, keep)
+		}
+		if rest, _ := io.ReadAll(r.Body); string(rest) != body {
+			t.Errorf("%.20q: corpo não voltou para o handler", body)
+		}
 	}
 }

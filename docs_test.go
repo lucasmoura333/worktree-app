@@ -113,3 +113,25 @@ func TestWorktreeNoteMentions(t *testing.T) {
 		t.Fatalf("menções: %+v", resp.Mentions)
 	}
 }
+
+func TestAssetStaysInsideScope(t *testing.T) {
+	s, vault, _ := docFixture(t)
+	diario := filepath.Join(vault, "worktree-app/Diario/2026/11 - Novembro")
+	write(t, filepath.Join(diario, "img/a.png"), "png")
+	write(t, filepath.Join(vault, "Pessoal/f.png"), "png")
+	get := func(link string) int {
+		req := httptest.NewRequest("GET", "/api/asset?"+url.Values{"doc": {"11-10-2026"}, "path": {link}}.Encode(), nil)
+		req.Host = "127.0.0.1:7777"
+		rec := httptest.NewRecorder()
+		s.routes().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := get("img/a.png"); code != http.StatusOK {
+		t.Fatalf("anexo da nota = %d", code)
+	}
+	for _, link := range []string{"../../../../Pessoal/f.png", "img%5Ca.png", "img/a.png%00", "C%3A/x.png", "/etc/passwd"} {
+		if code := get(link); code != http.StatusBadRequest {
+			t.Fatalf("%q = %d, quer 400", link, code)
+		}
+	}
+}

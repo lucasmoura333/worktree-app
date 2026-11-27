@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +78,101 @@ func TestValidRef(t *testing.T) {
 			t.Errorf("%q deveria ser inválido", s)
 		}
 	}
+}
+
+// gitRefOK segue as regras do "git check-ref-format" para refs/heads/...
+func gitRefOK(ref string) bool {
+	if ref == "" || ref == "@" || !strings.Contains(ref, "/") ||
+		strings.HasPrefix(ref, "/") || strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".") ||
+		strings.Contains(ref, "//") || strings.Contains(ref, "..") || strings.Contains(ref, "@{") ||
+		strings.ContainsAny(ref, " ~^:?*[\\") {
+		return false
+	}
+	for i := 0; i < len(ref); i++ {
+		if ref[i] < 0x20 || ref[i] == 0x7f {
+			return false
+		}
+	}
+	for _, seg := range strings.Split(ref, "/") {
+		if strings.HasPrefix(seg, ".") || strings.HasSuffix(seg, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+func TestGitRefOKMatchesGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git ausente")
+	}
+	for _, ref := range []string{
+		"refs/heads/dev.x", "refs/heads/dev.x.lock", "refs/heads/a..b", "refs/heads/a.",
+		"refs/heads/.a", "refs/heads/a@{1}", "refs/heads/a b", "refs/heads/a~1",
+		"refs/heads/a//b", "refs/heads/a/", "refs/heads/feat/x-y", "refs/heads/a\x7fb",
+		"refs/heads/ação", "refs/heads/a\\b", "refs/heads/a.lock/b",
+	} {
+		want := exec.Command("git", "check-ref-format", ref).Run() == nil
+		if got := gitRefOK(ref); got != want {
+			t.Errorf("%q: gitRefOK=%v, git=%v", ref, got, want)
+		}
+	}
+}
+
+func TestBranchRefOK(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git ausente")
+	}
+	dir := t.TempDir()
+	for name, want := range map[string]bool{
+		"dev.bdgd": true, "dev.bdgd.261126": true, "feat/x": true,
+		"dev.lock": false, "dev.x.lock": false, "dev..x": false, "-x": false, "": false, "a b": false,
+	} {
+		if got := branchRefOK(context.Background(), dir, name); got != want {
+			t.Errorf("branchRefOK(%q) = %v, quer %v", name, got, want)
+		}
+	}
+}
+
+func FuzzValidFeature(f *testing.F) {
+	for _, s := range []string{"bdgd", "fix-211026", "a.b_c-d", "x.lock", "a..b", "a.", "-x", ".x",
+		"a/b", "CON", strings.Repeat("a", 64), strings.Repeat("a", 65), "ação", "a b"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, name string) {
+		if validFeature(name) != nil {
+			return
+		}
+		if len(name) > 64 || name == "." || name == ".." || filepath.Base(name) != name ||
+			strings.ContainsAny(name, `/\`) {
+			t.Fatalf("%q aceito, mas não serve de nome de pasta", name)
+		}
+		// Com o nome no fim ("dev.lock") quem barra é o buildPlan.
+		for _, br := range []string{name, "dev." + name + ".261126", "feat/" + name} {
+			if !gitRefOK("refs/heads/" + br) {
+				t.Fatalf("%q aceito, mas a branch %q é inválida", name, br)
+			}
+		}
+	})
+}
+
+func FuzzValidRef(f *testing.F) {
+	for _, s := range []string{"origin/dev", "dev.bdgd.291026", "feat/x-y", "-f", "--upload-pack=x",
+		"a b", "a~1", "a\x00b", "a\x1bb", "a\x7fb", "HEAD@{1}", "abc123"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if !validRef(s) {
+			return
+		}
+		if strings.HasPrefix(s, "-") {
+			t.Fatalf("%q aceito, mas o git leria como opção", s)
+		}
+		for i := 0; i < len(s); i++ {
+			if s[i] <= ' ' || s[i] == 0x7f {
+				t.Fatalf("%q aceito com byte 0x%02x", s, s[i])
+			}
+		}
+	})
 }
 
 func TestShippedConfigParses(t *testing.T) {

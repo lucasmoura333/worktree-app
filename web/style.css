@@ -2098,3 +2098,154 @@ dialog.wide {
 .diff-lines .meta {
   color: var(--muted);
 }
+
+/* diagnóstico */
+.nav-link .nav-badge {
+  font: 10px/1 var(--mono);
+  margin-left: auto;
+  min-width: 18px;
+  padding: 3px 5px;
+  text-align: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+}
+.diag-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diag-head h2 {
+  margin: 0;
+}
+.diag-intro {
+  margin: 10px 0 16px;
+  max-width: 70ch;
+}
+.diag-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.diag-chip {
+  font: 10px var(--mono);
+  padding: 4px 8px;
+  border: 1px solid #c5c4b8;
+  background: var(--paper);
+}
+.diag-chip b {
+  font-size: 13px;
+  margin-right: 3px;
+}
+.diag-chip.d-err {
+  border-color: #c98a86;
+  background: #fbe0de;
+  color: #7f1d1d;
+}
+.diag-chip.d-warn {
+  border-color: #dcad8a;
+  background: #ffe2c9;
+  color: #7e3515;
+}
+.diag-chip.d-info {
+  border-color: #b9c3a3;
+  background: #eef1dc;
+  color: #3c4a20;
+}
+.diag-note {
+  font: 10px var(--mono);
+  color: var(--muted);
+  padding: 4px 0;
+}
+.diag-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.diag-check {
+  border: 1px solid #c9c6bc;
+  background: var(--paper);
+  padding: 12px 14px;
+  min-width: 0;
+}
+.diag-check-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.diag-check-head h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.diag-check-head .group-count {
+  margin-left: auto;
+}
+.diag-desc {
+  font-size: 11px;
+  margin: 4px 0 10px;
+}
+.diag-ok {
+  margin: 0;
+  font: 11px var(--mono);
+  color: #356145;
+}
+.diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.diag-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding-top: 10px;
+  border-top: 1px dashed #c5c4b8;
+}
+.diag-list .diag-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.diag-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+}
+.diag-item.d-err .diag-dot {
+  background: #a32828;
+}
+.diag-item.d-warn .diag-dot {
+  background: var(--accent);
+}
+.diag-item.d-info .diag-dot {
+  background: var(--blue);
+}
+.diag-item-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.diag-item-body strong {
+  font-size: 12px;
+}
+.diag-meta {
+  display: block;
+  font: 10px var(--mono);
+  color: var(--blue);
+}
+.diag-detail,
+.diag-hint {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.diag-hint {
+  font-family: var(--mono);
+}

@@ -124,6 +124,10 @@ faltando, e deps que são link para outra pasta.
   log para recriar com `git branch <nome> <hash>`. A branch do remoto nunca é
   tocada, e `tasks/` nunca é apagada.
 - **Registros quebrados**: worktrees cuja pasta sumiu, com botão de `git worktree prune`.
+- **Diagnóstico**: relatório só de leitura com worktrees inconsistentes, branches
+  órfãs (mergeadas, sem remoto ou com upstream sumido), portas do docker duplicadas
+  ou fora da faixa, snapshots corrompidos, sessões de agente órfãs/duplicadas/sem
+  hook e as últimas falhas de `ops.jsonl`. O contador no menu mostra o que pede ação.
 - **Agentes**: a barra do topo conta quantos agentes (Claude Code, Codex, opencode,
   agy) estão trabalhando, esperando você ou concluídos, e cada card mostra o agente
   da sua pasta, o consumo da sessão (tokens de entrada/saída; custo quando a fonte

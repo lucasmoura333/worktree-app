@@ -103,6 +103,9 @@ func exportStatic(dir, vaultDir string) error {
 	if err := writeJSONFile(filepath.Join(dir, "api", "state.json"), st); err != nil {
 		return err
 	}
+	if err := writeJSONFile(filepath.Join(dir, "api", "diagnostico.json"), demoDiagnostics()); err != nil {
+		return err
+	}
 
 	// 3. Índice do grafo (o shim refaz a busca em largura no navegador).
 	idx := s.graphIndex(true)

@@ -169,6 +169,7 @@ async function refresh() {
   renderFeatures();
   renderStale();
   schedulePlan();
+  loadDiag();
 }
 
 async function loadBranches(key, force) {
@@ -1154,6 +1155,93 @@ function openRemove(f) {
   dlg.showModal();
 }
 
+// ---------- diagnóstico ----------
+
+let diagReport = null;
+
+function diagChip(cls, n, one, many) {
+  return h(
+    "span",
+    { class: "diag-chip d-" + cls },
+    h("b", {}, String(n)),
+    " " + (n === 1 ? one : many),
+  );
+}
+
+function diagItem(it) {
+  const meta = [it.repo, it.feature, it.branch].filter(Boolean).join(" · ");
+  return h(
+    "li",
+    { class: "diag-item d-" + (it.severity || "info") },
+    h("span", { class: "diag-dot", "aria-hidden": "true" }),
+    h(
+      "div",
+      { class: "diag-item-body" },
+      h("strong", {}, it.title),
+      meta ? h("span", { class: "diag-meta" }, meta) : null,
+      it.detail ? h("p", { class: "diag-detail" }, it.detail) : null,
+      it.hint ? h("p", { class: "diag-hint" }, it.hint) : null,
+    ),
+  );
+}
+
+function diagCheck(c) {
+  const items = c.items || [];
+  return h(
+    "section",
+    { class: "diag-check" },
+    h(
+      "div",
+      { class: "diag-check-head" },
+      h("h3", {}, c.title),
+      h(
+        "span",
+        { class: "group-count" },
+        items.length ? plural(items.length, "item", "itens") : "ok",
+      ),
+    ),
+    c.desc ? h("p", { class: "muted diag-desc" }, c.desc) : null,
+    items.length
+      ? h("ul", { class: "diag-list" }, items.map(diagItem))
+      : h("p", { class: "diag-ok" }, "Nada por aqui."),
+  );
+}
+
+function renderDiag() {
+  if (!diagReport) return;
+  const badge = $("#diag-badge");
+  const attention = (diagReport.errors || 0) + (diagReport.warnings || 0);
+  badge.hidden = !attention;
+  badge.textContent = attention ? String(attention) : "";
+  $("#diag-updated").textContent = diagReport.at
+    ? "Verificado " +
+      new Date(diagReport.at).toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+  const chips = [
+    diagChip("err", diagReport.errors || 0, "erro", "erros"),
+    diagChip("warn", diagReport.warnings || 0, "aviso", "avisos"),
+    diagChip("info", diagReport.infos || 0, "info", "infos"),
+  ];
+  if (diagReport.busy)
+    chips.push(h("span", { class: "diag-note" }, "operação em andamento"));
+  $("#diag-summary").replaceChildren(...chips);
+  $("#diag-body").replaceChildren(...(diagReport.checks || []).map(diagCheck));
+}
+
+async function loadDiag(force) {
+  try {
+    diagReport = await getJSON("/api/diagnostico" + (force ? "?fresh=1" : ""));
+    renderDiag();
+  } catch (e) {
+    $("#diag-body").replaceChildren(
+      h("p", { class: "err" }, "Não foi possível verificar: " + e.message),
+    );
+  }
+}
+
 // ---------- eventos ----------
 
 $("#feature").addEventListener("input", schedulePlan);
@@ -1162,6 +1250,7 @@ for (const el of document.querySelectorAll("#opt-fetch, #opt-tasks, #opt-ws")) {
 }
 $("#btn-create").addEventListener("click", create);
 $("#btn-refresh").addEventListener("click", refresh);
+$("#diag-refresh").addEventListener("click", () => loadDiag(true));
 $("#btn-fetch").addEventListener("click", async () => {
   await stream("/api/fetch", { repos: [] });
   for (const k of Object.keys(branches)) loadBranches(k, true);

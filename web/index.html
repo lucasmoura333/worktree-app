@@ -38,6 +38,12 @@
           ><span aria-hidden="true">⌁</span> Conexões</a
         ><a class="nav-link" href="#activity"
           ><span aria-hidden="true">≋</span> Atividade</a
+        ><a class="nav-link" href="#diagnostico"
+          ><span aria-hidden="true">⚕</span> Diagnóstico<span
+            class="nav-badge"
+            id="diag-badge"
+            hidden
+          ></span></a
         >
       </nav>
       <div class="rail-note">
@@ -144,6 +150,21 @@
             O Git ainda lista estas worktrees, mas as pastas não existem mais.
           </p>
           <div id="stale"></div>
+        </section>
+        <section class="card diag" id="diagnostico" aria-labelledby="diag-title">
+          <div class="diag-head">
+            <h2 id="diag-title">Diagnóstico</h2>
+            <span id="diag-updated" class="muted"></span>
+            <div class="spacer"></div>
+            <button id="diag-refresh" class="small">↻ Verificar</button>
+          </div>
+          <p class="muted diag-intro">
+            O que costuma travar o fluxo: worktrees inconsistentes, branches
+            órfãs, portas duplicadas, snapshots inválidos, sessões paradas e
+            falhas recentes. Só leitura; nada é alterado.
+          </p>
+          <div id="diag-summary" class="diag-summary" aria-live="polite"></div>
+          <div id="diag-body" class="diag-body" aria-live="polite"></div>
         </section>
         <section class="log" id="activity" aria-labelledby="activity-title">
           <div class="titlebar">

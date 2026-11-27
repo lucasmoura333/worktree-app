@@ -117,6 +117,8 @@
     switch (u.pathname) {
       case "/api/state":
         return json(await load("api/state.json"));
+      case "/api/diagnostico":
+        return json(await load("api/diagnostico.json"));
       case "/api/doc":
         return doc(u.searchParams.get("path"));
       case "/api/graph":

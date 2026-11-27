@@ -37,6 +37,10 @@ type server struct {
 	wts     wtIndex
 	usage   usageReader
 	launch  func(argv []string) error
+
+	diagMu   sync.Mutex
+	diagAt   time.Time
+	diagLast *DiagReport
 }
 
 func newServer(cfg *Config) *server {
@@ -48,6 +52,7 @@ func (s *server) routes() http.Handler {
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(sub))
 	mux.HandleFunc("GET /api/state", s.handleState)
+	mux.HandleFunc("GET /api/diagnostico", s.handleDiagnostico)
 	mux.HandleFunc("GET /api/branches", s.handleBranches)
 	mux.HandleFunc("POST /api/plan", s.handlePlan)
 	mux.HandleFunc("POST /api/connections", s.handleConnections)

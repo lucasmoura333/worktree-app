@@ -103,6 +103,10 @@ and dependencies that are links to another folder.
   with "force"); the hash is logged so it can be recreated. Remote branches and
   `tasks/` are never deleted.
 - **Broken entries**: worktrees whose folder is gone, with a `git worktree prune` button.
+- **Diagnostics**: read-only report of inconsistent worktrees, orphan branches
+  (merged, missing a remote or with a gone upstream), duplicated or out-of-range
+  Docker ports, corrupted snapshots, orphan/duplicate/hookless agent sessions and
+  the latest `ops.jsonl` failures. The menu badge shows what needs action.
 - **Agents**: the top bar counts agents (Claude Code, Codex, opencode, agy) that are
   working, waiting for you or done, and each card shows the agent in its folder, the
   session usage (input/output tokens; cost when the source reports it) and a

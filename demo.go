@@ -13,6 +13,7 @@ func demoHandler(cfg *Config) http.Handler {
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(sub))
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, demoState()) })
+	mux.HandleFunc("GET /api/diagnostico", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, demoDiagnostics()) })
 	mux.HandleFunc("POST /api/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Prévia visual: operação desativada", http.StatusForbidden)
 	})

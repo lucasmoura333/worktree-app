@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -334,5 +338,67 @@ func TestDeleteBranchSafeAndForced(t *testing.T) {
 	out, err := git(ctx, main, "ls-remote", "--heads", "origin", "outra")
 	if err != nil || !strings.Contains(out, "refs/heads/outra") {
 		t.Fatalf("a branch do remoto não pode ser tocada: %q %v", out, err)
+	}
+}
+
+func TestIgnoredLossesBeforeRemove(t *testing.T) {
+	cfg := fixture(t)
+	ctx := context.Background()
+	if err := createFeature(ctx, cfg, &CreateReq{Feature: "ign", Repos: []CreateRepoReq{{Key: "app"}}}, newPortAllocator(), &memLog{}); err != nil {
+		t.Fatal(err)
+	}
+	rc := cfg.repo("app")
+	main := cfg.mainPath(rc)
+	wt := filepath.Join(cfg.Root, "acme-app", "dev.ign")
+	write(t, filepath.Join(main, ".git/info/exclude"), "*.sqlite\nstorage/\n")
+	write(t, filepath.Join(wt, "db.sqlite"), "x")
+	write(t, filepath.Join(wt, "storage/logs/a.log"), "x")
+	write(t, filepath.Join(wt, "node_modules/pkg/index.js"), "x")
+
+	names := func() map[string]string {
+		t.Helper()
+		got, err := ignoredLosses(ctx, cfg, rc, wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]string{}
+		for _, f := range got.Files {
+			m[f.Name] = f.Note
+		}
+		return m
+	}
+	// .env e docker/dev/.env saíram iguais ao main (fora projeto e porta): não contam.
+	want := map[string]string{"db.sqlite": "", "storage": "pasta", ".claude": "copiada do main"}
+	if got := names(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ignorados = %v, quer %v", got, want)
+	}
+	write(t, filepath.Join(wt, ".env"), "FAKE_SECRET=mudou\n")
+	if got := names(); got[".env"] != "difere do main" {
+		t.Fatalf(".env editado não avisado: %v", got)
+	}
+
+	s := newServer(cfg)
+	get := func(path string) (int, string) {
+		req := httptest.NewRequest("GET", "/api/ignored?"+url.Values{"repo": {"app"}, "path": {path}}.Encode(), nil)
+		req.Host = "127.0.0.1:7777"
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+	if code, body := get(wt); code != http.StatusOK || !strings.Contains(body, `"db.sqlite"`) || strings.Contains(body, "mudou") {
+		t.Fatalf("GET worktree = %d %s", code, body)
+	}
+	for _, p := range []string{main, filepath.Join(cfg.Root, "acme-app"), "/etc"} {
+		if code, _ := get(p); code != http.StatusBadRequest {
+			t.Fatalf("GET %s = %d, quer 400", p, code)
+		}
+	}
+
+	lg := &memLog{}
+	if err := removeFeature(ctx, cfg, &RemoveReq{Feature: "ign", SkipSnapshot: true}, lg); err != nil {
+		t.Fatalf("remove: %v\n%s", err, lg)
+	}
+	if !strings.Contains(lg.String(), "saíram junto") || !strings.Contains(lg.String(), "db.sqlite") {
+		t.Fatalf("aviso de ignorados ausente:\n%s", lg)
 	}
 }

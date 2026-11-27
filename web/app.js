@@ -987,6 +987,24 @@ async function openPath(path, how) {
   }
 }
 
+// Ignorados pelo git somem com a worktree sem aparecer como alteração.
+function ignoredNote(wt) {
+  const el = h("div", { class: "warnc" });
+  if (state.demo) return el;
+  const q = new URLSearchParams({ repo: wt.repo, path: wt.path });
+  getJSON("/api/ignored?" + q)
+    .then((d) => {
+      if (!d.files.length) return;
+      const names = d.files.map((f) => (f.note ? `${f.name} (${f.note})` : f.name));
+      if (d.more) names.push(`+${d.more}`);
+      el.textContent = "ignorados que somem junto: " + names.join(", ");
+    })
+    .catch(() => {
+      el.textContent = "não deu para listar os arquivos ignorados";
+    });
+  return el;
+}
+
 function openRemove(f) {
   const dlg = $("#dlg");
   const risky = (wt) =>
@@ -1067,6 +1085,7 @@ function openRemove(f) {
                 .join(" · "),
             )
           : null,
+        ignoredNote(wt),
       ),
     ),
   );

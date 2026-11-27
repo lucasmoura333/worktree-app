@@ -56,6 +56,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/agents", s.handleAgents)
 	mux.HandleFunc("POST /api/terminal", s.handleTerminal)
 	mux.HandleFunc("GET /api/diff", s.handleDiff)
+	mux.HandleFunc("GET /api/ignored", s.handleIgnored)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("POST /api/snapshot", s.stream(s.opSnapshot))
 	mux.HandleFunc("POST /api/snapshot/restore", s.stream(s.opSnapshotRestore))

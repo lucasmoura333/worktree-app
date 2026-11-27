@@ -143,6 +143,7 @@ func removeWorktree(ctx context.Context, cfg *Config, r *RepoConfig, wt Worktree
 		}
 		lg.Log(r.Key, "info", d.Dir+": junction removida (o original segue intacto)")
 	}
+	ig, igErr := ignoredLosses(ctx, cfg, r, wt.Path)
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
@@ -172,6 +173,13 @@ func removeWorktree(ctx context.Context, cfg *Config, r *RepoConfig, wt Worktree
 		}
 	}
 	lg.Log(r.Key, "ok", "removida "+relSlash(cfg.Root, wt.Path))
+	if igErr == nil && len(ig.Files) > 0 {
+		names := make([]string, 0, len(ig.Files))
+		for _, f := range ig.Files {
+			names = append(names, f.Name)
+		}
+		lg.Log(r.Key, "warn", fmt.Sprintf("%d ignorado(s) saíram junto: %s", len(ig.Files)+ig.More, strings.Join(names, ", ")))
+	}
 	if req.DeleteBranch && wt.Branch != "" {
 		deleteLocalBranch(ctx, main, r.Key, wt.Branch, req.ForceBranch, lg)
 	}

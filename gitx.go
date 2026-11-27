@@ -67,6 +67,15 @@ func refExists(ctx context.Context, dir, ref string) bool {
 	return err == nil
 }
 
+// branchRefOK confere o nome já composto pelo branchPattern (ex.: "dev.lock").
+func branchRefOK(ctx context.Context, dir, name string) bool {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+	_, err := git(ctx, dir, "check-ref-format", "refs/heads/"+name)
+	return err == nil
+}
+
 type gitWorktree struct {
 	Path     string
 	Head     string

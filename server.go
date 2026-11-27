@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -106,14 +107,15 @@ func decodeJSON(r *http.Request, v any) error {
 func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 	// Durante uma operação longa (instalar deps) a tela não pode travar:
 	// devolve o estado lendo o Vault, sem gravar nada no meio da operação.
-	if !s.opMu.TryLock() {
+	release, ok := s.tryOp()
+	if !ok {
 		st := scanState(r.Context(), s.cfg)
 		s.peekVault(st)
 		st.Busy = true
 		writeJSON(w, st)
 		return
 	}
-	defer s.opMu.Unlock()
+	defer release()
 	st := scanState(r.Context(), s.cfg)
 	s.syncVault(st)
 	writeJSON(w, st)
@@ -236,17 +238,47 @@ func (l *streamLog) done(err error) {
 	l.emit(event{Level: "done", Msg: msg, OK: &ok})
 }
 
+var errOpBusy = errors.New("operação em andamento em outra instância")
+
+// tryOp pega a vez de operar: o opMu segura este processo e StateDir/op.lock
+// segura outras instâncias com o mesmo StateDir (outra porta, go run), que
+// sem isso escolheriam a mesma porta do docker e gravariam o Vault juntas.
+func (s *server) tryOp() (func(), bool) {
+	if !s.opMu.TryLock() {
+		return nil, false
+	}
+	unlock, err := lockOp(s.cfg)
+	switch {
+	case errors.Is(err, errOpBusy):
+		s.opMu.Unlock()
+		return nil, false
+	case err != nil:
+		// StateDir sem escrita: fica só a trava do processo, como antes.
+		return s.opMu.Unlock, true
+	}
+	return func() { unlock(); s.opMu.Unlock() }, true
+}
+
+func lockOp(c *Config) (func(), error) {
+	dir := stateRoot(c)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	return lockFile(filepath.Join(dir, "op.lock"))
+}
+
 type opFunc func(ctx context.Context, r *http.Request, lg Logger) error
 
 // stream roda uma operação por vez. Ela segue até o fim mesmo se a aba
 // fechar, para não deixar worktree pela metade.
 func (s *server) stream(fn opFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.opMu.TryLock() {
+		release, ok := s.tryOp()
+		if !ok {
 			http.Error(w, "já existe uma operação em andamento", http.StatusConflict)
 			return
 		}
-		defer s.opMu.Unlock()
+		defer release()
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		fl, _ := w.(http.Flusher)
 		lg := &streamLog{w: w, fl: fl}

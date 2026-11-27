@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -400,5 +402,203 @@ func TestIgnoredLossesBeforeRemove(t *testing.T) {
 	}
 	if !strings.Contains(lg.String(), "saíram junto") || !strings.Contains(lg.String(), "db.sqlite") {
 		t.Fatalf("aviso de ignorados ausente:\n%s", lg)
+	}
+}
+
+func createHTTP(t *testing.T, s *server, feature string) (code int, ok bool) {
+	t.Helper()
+	body := jsonBody(t, CreateReq{Feature: feature, Repos: []CreateRepoReq{{Key: "app"}}})
+	w := apiCall(t, s, http.MethodPost, "/api/create", body)
+	if w.Code != http.StatusOK {
+		return w.Code, false
+	}
+	ok, _ = ndjsonDone(t, w)
+	return w.Code, ok
+}
+
+// together roda fn(i) em n goroutines soltas ao mesmo tempo.
+func together(n int, fn func(i int)) {
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			fn(i)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+}
+
+func worktreeCount(t *testing.T, cfg *Config) int {
+	t.Helper()
+	wts, err := listWorktrees(context.Background(), cfg.mainPath(&cfg.Repos[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(wts)
+}
+
+func devPort(t *testing.T, cfg *Config, feature string) string {
+	t.Helper()
+	v, _ := getEnvValue(read(t, filepath.Join(cfg.Root, "acme-app", "dev."+feature, "docker/dev/.env")), "DEV_PORT")
+	return v
+}
+
+func TestConcurrentCreateSameFeature(t *testing.T) {
+	cfg := fixture(t)
+	s := newServer(cfg)
+	const n = 6
+	codes, oks := make([]int, n), make([]bool, n)
+	together(n, func(i int) { codes[i], oks[i] = createHTTP(t, s, "igual") })
+	won := 0
+	for i := range codes {
+		switch {
+		case codes[i] == http.StatusOK && oks[i]:
+			won++
+		case codes[i] != http.StatusConflict:
+			t.Fatalf("pedido %d: status %d ok=%v", i, codes[i], oks[i])
+		}
+	}
+	if won != 1 || worktreeCount(t, cfg) != 2 {
+		t.Fatalf("venceram %d, worktrees %d; quer 1 e 2 (main + nova)", won, worktreeCount(t, cfg))
+	}
+}
+
+// Duas instâncias no mesmo StateDir (outra porta, go run) escolhiam a mesma
+// porta do docker: cada uma só enxerga a reserva dela.
+func TestTwoInstancesDoNotShareDockerPort(t *testing.T) {
+	cfg := fixture(t)
+	srv := []*server{newServer(cfg), newServer(cfg)}
+	feat := []string{"fa", "fb"}
+	codes, oks := make([]int, 2), make([]bool, 2)
+	together(2, func(i int) { codes[i], oks[i] = createHTTP(t, srv[i], feat[i]) })
+	var won, lost int
+	switch {
+	case oks[0] && codes[1] == http.StatusConflict:
+		won, lost = 0, 1
+	case oks[1] && codes[0] == http.StatusConflict:
+		won, lost = 1, 0
+	default:
+		t.Fatalf("quer uma criada e um 409; codes=%v oks=%v", codes, oks)
+	}
+	if exists(filepath.Join(cfg.Root, "acme-app", "dev."+feat[lost])) {
+		t.Fatal("a instância barrada não pode criar nada")
+	}
+	if code, ok := createHTTP(t, srv[lost], feat[lost]); code != http.StatusOK || !ok {
+		t.Fatalf("depois de liberada: status %d ok=%v", code, ok)
+	}
+	if a, b := devPort(t, cfg, feat[won]), devPort(t, cfg, feat[lost]); a == b {
+		t.Fatalf("as duas worktrees ficaram com DEV_PORT=%s", a)
+	}
+}
+
+// Um git de fora disputa a mesma pasta e branch: quem perde sai com erro e
+// ninguém configura a worktree do outro.
+func TestCreateRacesOutsideGit(t *testing.T) {
+	cfg := fixture(t)
+	main := cfg.mainPath(&cfg.Repos[0])
+	ctx := context.Background()
+	for round := 0; round < 4; round++ {
+		feature := "fora" + string(rune('a'+round))
+		wt := filepath.Join(cfg.Root, "acme-app", "dev."+feature)
+		branch := cfg.branchName(feature, time.Now())
+		var ours, theirs error
+		together(2, func(i int) {
+			if i == 0 {
+				req := &CreateReq{Feature: feature, Repos: []CreateRepoReq{{Key: "app"}}}
+				ours = createFeature(ctx, cfg, req, newPortAllocator(), &memLog{})
+				return
+			}
+			_, theirs = git(ctx, main, "worktree", "add", "--no-track", "-b", branch, wt, "origin/dev")
+		})
+		if ours == nil && theirs == nil {
+			t.Fatalf("rodada %d: os dois criaram %s", round, wt)
+		}
+		denv := filepath.Join(wt, "docker/dev/.env")
+		if ours == nil && !exists(denv) {
+			t.Fatalf("rodada %d: venceu e não configurou", round)
+		}
+		if ours != nil && exists(denv) {
+			t.Fatalf("rodada %d: perdeu (%v) e mexeu na worktree do outro", round, ours)
+		}
+	}
+	if got, want := worktreeCount(t, cfg), 5; got != want {
+		t.Fatalf("worktrees = %d, quer %d", got, want)
+	}
+}
+
+// TestHoldOpLock não testa nada sozinho: é o processo filho que segura a
+// trava em TestOpLockAcrossProcesses.
+func TestHoldOpLock(t *testing.T) {
+	p := os.Getenv("WT_HOLD_OP_LOCK")
+	if p == "" {
+		t.Skip("só roda como processo filho")
+	}
+	unlock, err := lockFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	os.Stdout.WriteString("travado\n")
+	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
+func TestOpLockAcrossProcesses(t *testing.T) {
+	cfg := fixture(t)
+	s := newServer(cfg)
+	if err := os.MkdirAll(stateRoot(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hold := func() (*exec.Cmd, io.WriteCloser) {
+		self, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(self, "-test.run=^TestHoldOpLock$")
+		cmd.Env = append(os.Environ(), "WT_HOLD_OP_LOCK="+filepath.Join(stateRoot(cfg), "op.lock"))
+		in, _ := cmd.StdinPipe()
+		out, _ := cmd.StdoutPipe()
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		line, _ := bufio.NewReader(out).ReadString('\n')
+		if line != "travado\n" {
+			t.Fatalf("filho não travou: %q", line)
+		}
+		return cmd, in
+	}
+	free := func() bool {
+		release, ok := s.tryOp()
+		if ok {
+			release()
+		}
+		return ok
+	}
+
+	cmd, in := hold()
+	if free() {
+		t.Fatal("trava de outro processo ignorada")
+	}
+	if code, _ := createHTTP(t, s, "barrada"); code != http.StatusConflict {
+		t.Fatalf("create com outro processo operando: status %d", code)
+	}
+	if st := apiCall(t, s, http.MethodGet, "/api/state", ""); !strings.Contains(st.Body.String(), `"busy":true`) {
+		t.Fatalf("estado não marcou busy: %s", st.Body.String())
+	}
+	_ = in.Close()
+	_ = cmd.Wait()
+	if !free() {
+		t.Fatal("trava não saiu com o fim do processo")
+	}
+
+	// Processo morto no meio da operação também solta.
+	cmd, _ = hold()
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if !free() {
+		t.Fatal("trava ficou presa depois do kill")
 	}
 }

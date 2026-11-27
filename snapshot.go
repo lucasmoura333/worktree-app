@@ -91,8 +91,9 @@ func safeSnapshotSeg(s string) string {
 			b.WriteByte('-')
 		}
 	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" || out == "." || out == ".." {
+	// "." na borda: a listagem pula e o Windows descarta.
+	out := strings.Trim(b.String(), "-.")
+	if out == "" {
 		return "_"
 	}
 	return out
@@ -712,13 +713,28 @@ func pruneSnapshots(cfg *Config, repo, folder string) {
 
 // ---------- restauração ----------
 
+// isDotGitSeg pega ".git" e as variantes que o NTFS resolve para ele.
+func isDotGitSeg(seg string) bool {
+	s := strings.TrimRight(seg, ". ")
+	return strings.EqualFold(s, ".git") || strings.EqualFold(s, "git~1")
+}
+
 func checkTarPath(root, name string) (string, error) {
 	n := filepath.ToSlash(name)
-	if n == "" || filepath.IsAbs(name) || strings.HasPrefix(n, "/") || n == ".." ||
-		strings.HasPrefix(n, "../") || strings.Contains(n, "/../") ||
-		n == ".git" || strings.HasPrefix(n, ".git/") {
+	if n == "" || filepath.IsAbs(name) || strings.HasPrefix(n, "/") || strings.ContainsRune(n, 0) {
 		return "", fmt.Errorf("caminho inválido no snapshot: %q", name)
 	}
+	// Limpo antes: "./.git/x" e "a/../.git" caem no mesmo lugar.
+	c := path.Clean(n)
+	if c == "." || c == ".." || strings.HasPrefix(c, "../") {
+		return "", fmt.Errorf("caminho inválido no snapshot: %q", name)
+	}
+	for _, seg := range strings.Split(c, "/") {
+		if isDotGitSeg(seg) {
+			return "", fmt.Errorf("caminho inválido no snapshot: %q", name)
+		}
+	}
+	n = c
 	target := filepath.Join(root, filepath.FromSlash(n))
 	if !within(root, target) || samePath(target, root) {
 		return "", fmt.Errorf("caminho fora da worktree no snapshot: %q", name)

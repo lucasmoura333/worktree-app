@@ -405,11 +405,12 @@ func (s *server) handleConnections(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worktree inválida", 400)
 		return
 	}
-	if !s.opMu.TryLock() {
+	release, ok := s.tryOp()
+	if !ok {
 		http.Error(w, "operação em andamento", 409)
 		return
 	}
-	defer s.opMu.Unlock()
+	defer release()
 	s.vaultMu.Lock()
 	defer s.vaultMu.Unlock()
 	dir, err := vaultDir(s.cfg)
